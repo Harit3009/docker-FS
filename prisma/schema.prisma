@@ -5,8 +5,7 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
@@ -14,7 +13,7 @@ datasource db {
 }
 
 model User {
-  id @id @default(uuid())
+  id String @id @default(uuid())
   name String 
   email String @unique
   profilePic String?
@@ -23,4 +22,39 @@ model User {
   updatedAt DateTime @updatedAt
   googleAccessToken String? @db.Text
   googleRefreshToken String? @db.Text
+  rootFolderId String? @unique
+  rootFolder Folder? @relation("rootFolder", fields: [rootFolderId], references: [id])
+  createdFolder Folder[] @relation("userCreatedRelation") 
+  createdFiles File [] @relation("userCreatedRelationFile")
+}
+
+model Folder {
+  id String @id @default(uuid()) 
+  parentId String?
+  s3Key String @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdById String
+  fileSystemPath String
+  createdBy User @relation("userCreatedRelation", fields: [createdById], references:[id])
+  childFolders Folder[] @relation("childFolders")
+  childFiles File[] @relation("parentFolderForFile")
+  parent Folder? @relation("childFolders", fields: [parentId], references: [id])
+  rootUser User? @relation("rootFolder")
+  @@unique([createdById,fileSystemPath])
+}
+
+model File {
+  id String @id @default(uuid())
+  parentId String
+  s3Key String @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdById String
+  fileSystemPath String
+  mimeType String
+  size BigInt
+  createdBy User @relation("userCreatedRelationFile", fields: [createdById], references:[id])
+  parentFolder Folder @relation("parentFolderForFile", fields: [parentId], references: [id])
+  @@unique([createdById,fileSystemPath])
 }
