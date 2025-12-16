@@ -3,12 +3,12 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Prisma } from '@prisma/client';
 
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
-import { AUTHGUARD_KEYS } from 'src/constants';
+import { PASSPORT_STRATEGIES } from '../../constants';
 
 @Injectable()
 export class GoogleStrategyService extends PassportStrategy(
   GoogleStrategy,
-  AUTHGUARD_KEYS.GOOGLE_AUTH_TOKEN,
+  PASSPORT_STRATEGIES.GOOGLE_AUTH_TOKEN,
 ) {
   constructor() {
     super({

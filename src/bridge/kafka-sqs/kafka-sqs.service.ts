@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Consumer, Kafka, Producer } from 'kafkajs';
 import {
   DeleteMessageCommand,
@@ -7,16 +7,36 @@ import {
   ReceiveMessageCommandInput,
   SQSClient,
 } from '@aws-sdk/client-sqs';
+import { PrismaService } from 'src/prisma/prisma.service';
+import { Logger } from '@nestjs/common';
+import { S3Service } from 'src/s3-module/s3-service.service';
+import { S3FileMetaData } from 'types/file-metadata';
+import { Prisma } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+
+interface FileUploadMessage {
+  s3Key: string;
+  bucket: string;
+}
 
 @Injectable()
-export class KafkaSqsService {
-  kafka: Kafka;
+export class KafkaSqsService implements OnModuleInit, OnModuleDestroy {
+  public kafka: Kafka;
   producer: Producer;
-  dbCreateConsumer: Consumer;
-  sqsS3: SQSClient;
-  isPolling: Boolean = false;
+  private dbCreateConsumer: Consumer;
+  private sqsS3: SQSClient;
+  private isPollingS3EventSqs: Boolean = false;
+  isKafkaConnected: boolean = false;
+  connectionReadyEventEmitter: EventEmitter2 = new EventEmitter2({
+    maxListeners: Infinity,
+  });
 
-  constructor() {
+  private readonly logger = new Logger('KafkaSqsService');
+
+  constructor(
+    private prismaService: PrismaService,
+    private s3Service: S3Service,
+  ) {
     this.kafka = new Kafka({
       brokers: [process.env.KAFKA_BROKERS],
       clientId: process.env.KAFKA_CLIENT_ID,
@@ -26,8 +46,9 @@ export class KafkaSqsService {
       groupId: 'db-record-creator',
     });
 
-    this.producer.connect();
-    this.dbCreateConsumer.connect();
+    this.connectionReadyEventEmitter.addListener('producer connected', () => {
+      this.isKafkaConnected = true;
+    });
 
     this.sqsS3 = new SQSClient({
       endpoint: process.env.AWS_ENDPOINT,
@@ -37,13 +58,68 @@ export class KafkaSqsService {
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
       },
     });
+  }
 
-    this.isPolling = true;
+  async onModuleInit() {
+    this.initializeKafkaConnection();
+  }
+
+  private async initializeKafkaConnection() {
+    await this.producer.connect();
+    this.connectionReadyEventEmitter.emit('producer connected');
+    await this.dbCreateConsumer.connect();
+    await this.dbCreateConsumer.subscribe({ topics: ['file-uploaded'] });
+    await this.dbCreateConsumer.run({
+      eachMessage: async ({ message: _message }) => {
+        try {
+          const message = JSON.parse(
+            _message.value.toString(),
+          ) as FileUploadMessage;
+          this.logger.log(message);
+
+          const { Metadata, ContentLength } =
+            await this.s3Service.getHeadObjectCommand(
+              message.s3Key,
+              message.bucket,
+            );
+
+          const fileMeta: S3FileMetaData =
+            Metadata as unknown as S3FileMetaData;
+
+          const dbFileInput: Prisma.FileCreateInput = {
+            id: fileMeta.fileid,
+            parentFolder: { connect: { id: fileMeta.parentid } },
+            createdBy: { connect: { id: fileMeta.createdbyid } },
+            s3Key: message.s3Key,
+            fileSystemPath: fileMeta.filesystempath,
+            mimeType: fileMeta.filesystempath,
+            size: ContentLength,
+          };
+
+          await this.prismaService.file.create({ data: dbFileInput });
+          this.logger.log('metadata');
+          this.logger.log(Metadata);
+        } catch (error) {
+          this.logger.error(error);
+          this.producer.send({
+            topic: 'error-while-file-upload=processing',
+            messages: [{ value: JSON.stringify({ stack: error.stack }) }],
+          });
+        }
+      },
+    });
+
+    this.isPollingS3EventSqs = true;
     this.pollSqs();
   }
 
-  async pollSqs() {
-    while (this.isPolling) {
+  async onModuleDestroy() {
+    await this.producer.disconnect();
+    await this.dbCreateConsumer.disconnect();
+  }
+
+  private async pollSqs() {
+    while (this.isPollingS3EventSqs) {
       const command: ReceiveMessageCommandInput = {
         QueueUrl: process.env.AWS_S3_EVENT_QUEUE_URL,
         MaxNumberOfMessages: 10,
@@ -53,6 +129,7 @@ export class KafkaSqsService {
       const { Messages } = await this.sqsS3.send(
         new ReceiveMessageCommand(command),
       );
+
       if (Messages?.length)
         for (let i = 0; i < Messages.length; i++) {
           await this.processMessage(Messages[i]);
@@ -60,7 +137,7 @@ export class KafkaSqsService {
     }
   }
 
-  async processMessage(sqsMessage: Message) {
+  private async processMessage(sqsMessage: Message) {
     const body = JSON.parse(sqsMessage.Body);
 
     // S3 Event Structure is inside 'Records'

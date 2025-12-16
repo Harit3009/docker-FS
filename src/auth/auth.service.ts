@@ -20,7 +20,6 @@ export class AuthService {
         createdUser,
         tx,
       );
-
       await tx.user.update({
         where: {
           id: createdUser.id,
@@ -30,6 +29,7 @@ export class AuthService {
         },
       });
     });
+
     return createdUser;
   }
 
@@ -37,13 +37,16 @@ export class AuthService {
     let foundUser: User | null = await this.prismaService.user.findUnique({
       where: { googleId: user.googleId },
     });
+
     if (!foundUser) {
       foundUser = await this.signUpUser(user);
     }
 
-    return this.jwtService.sign(
-      { email: foundUser.email, sub: user.id },
+    const jwt = this.jwtService.sign(
+      { email: foundUser.email, sub: foundUser.id },
       { secret: process.env.JWT_SECRET },
     );
+
+    return { jwt, payload: { email: foundUser.email, sub: foundUser.id } };
   }
 }

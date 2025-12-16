@@ -20,6 +20,7 @@ model User {
   googleId String @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  isDeleted Boolean @default(false)
   googleAccessToken String? @db.Text
   googleRefreshToken String? @db.Text
   rootFolderId String? @unique
@@ -36,6 +37,9 @@ model Folder {
   updatedAt DateTime @updatedAt
   createdById String
   fileSystemPath String
+  isDeleted Boolean @default(false)
+  deletedAt DateTime? 
+  size BigInt @default(0)
   createdBy User @relation("userCreatedRelation", fields: [createdById], references:[id])
   childFolders Folder[] @relation("childFolders")
   childFiles File[] @relation("parentFolderForFile")
@@ -54,6 +58,8 @@ model File {
   fileSystemPath String
   mimeType String
   size BigInt
+  isDeleted Boolean @default(false)
+  deletedAt DateTime? 
   createdBy User @relation("userCreatedRelationFile", fields: [createdById], references:[id])
   parentFolder Folder @relation("parentFolderForFile", fields: [parentId], references: [id])
   @@unique([createdById,fileSystemPath])

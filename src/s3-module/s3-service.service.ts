@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import {
+  GetObjectCommand,
+  GetObjectCommandInput,
+  HeadObjectCommand,
+  HeadObjectCommandInput,
   PutObjectCommand,
   PutObjectCommandInput,
   S3Client,
@@ -7,6 +11,7 @@ import {
 import { Folder } from '@prisma/client';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
+import path from 'path';
 
 @Injectable()
 export class S3Service {
@@ -20,6 +25,8 @@ export class S3Service {
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'test',
       },
       forcePathStyle: true,
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
     });
   }
 
@@ -36,18 +43,42 @@ export class S3Service {
     },
   ) {
     const fileId = uuidv4();
+
     const command: PutObjectCommandInput = {
-      Key: `${parentFolder.s3Key}/${fileId}`,
+      Key: path.join(parentFolder.createdById, fileId),
       Bucket: process.env.AWS_BUCKET_NAME,
       ContentType: contentType,
       Metadata: {
         createdbyemail: createdBy.email,
         filesystempath: `${parentFolder.fileSystemPath}${fileName}`,
         createdbyid: createdBy.id,
-        fileid: fileId, // '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed'
+        fileid: fileId,
+        parentid: parentFolder.id,
       },
     };
-
     return getSignedUrl(this.s3Client, new PutObjectCommand(command));
+  }
+
+  async getHeadObjectCommand(
+    s3Key: string,
+    bucketName: string = process.env.AWS_BUCKET_NAME,
+  ) {
+    const command: HeadObjectCommandInput = {
+      Key: s3Key,
+      Bucket: bucketName,
+    };
+    return this.s3Client.send(new HeadObjectCommand(command));
+  }
+
+  async getSignedUrlForDownload(
+    s3Key: string,
+    bucketName: string = process.env.AWS_BUCKET_NAME,
+  ) {
+    const command: GetObjectCommandInput = {
+      Bucket: bucketName,
+      Key: s3Key,
+    };
+
+    return getSignedUrl(this.s3Client, new GetObjectCommand(command));
   }
 }

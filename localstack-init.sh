@@ -24,5 +24,15 @@ cat <<EOF > /tmp/s3-notification.json
 EOF
 
 awslocal s3api put-bucket-notification-configuration --bucket local-file-system --notification-configuration file:///tmp/s3-notification.json
+awslocal s3api put-bucket-cors --bucket local-file-system --cors-configuration '{
+  "CORSRules": [
+    {
+      "AllowedHeaders": ["*"],
+      "AllowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],
+      "AllowedOrigins": ["*"],
+      "ExposeHeaders": ["ETag"]
+    }
+  ]
+}'
 
 echo "LocalStack resources created!"
