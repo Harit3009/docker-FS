@@ -25,27 +25,27 @@ model User {
   googleRefreshToken String? @db.Text
   rootFolderId String? @unique
   rootFolder Folder? @relation("rootFolder", fields: [rootFolderId], references: [id])
-  createdFolder Folder[] @relation("userCreatedRelation") 
+  createdFolder Folder[] @relation("userCreatedRelation")
   createdFiles File [] @relation("userCreatedRelationFile")
 }
 
 model Folder {
   id String @id @default(uuid()) 
   parentId String?
-  s3Key String @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   createdById String
   fileSystemPath String
   isDeleted Boolean @default(false)
-  deletedAt DateTime? 
+  deletedAt DateTime?
+  itemCount Int @default(0)
   size BigInt @default(0)
   createdBy User @relation("userCreatedRelation", fields: [createdById], references:[id])
   childFolders Folder[] @relation("childFolders")
   childFiles File[] @relation("parentFolderForFile")
   parent Folder? @relation("childFolders", fields: [parentId], references: [id])
   rootUser User? @relation("rootFolder")
-  @@unique([createdById,fileSystemPath])
+  @@index([createdById,fileSystemPath])
 }
 
 model File {
@@ -62,5 +62,5 @@ model File {
   deletedAt DateTime? 
   createdBy User @relation("userCreatedRelationFile", fields: [createdById], references:[id])
   parentFolder Folder @relation("parentFolderForFile", fields: [parentId], references: [id])
-  @@unique([createdById,fileSystemPath])
+  @@index([createdById,fileSystemPath])
 }

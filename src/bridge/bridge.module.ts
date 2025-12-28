@@ -1,12 +1,19 @@
 import { Module } from '@nestjs/common';
-import { KafkaSqsService } from './kafka-sqs/kafka-sqs.service';
+import { KafkaCreateFileConsumerService } from './kafka-create/kafka-create-file';
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { S3ModuleModule } from 'src/s3-module/s3-module.module';
 import { KafkaDeleteConsumerService } from './kafka-delete-consumer/kafka-delete-consumer.service';
+import { DeleteTrashSchedulerService } from './delete-trash-scheduler/delete-trash-scheduler.service';
+import { KafkaService } from './kafka/kafka.service';
 
 @Module({
-  providers: [KafkaSqsService, KafkaDeleteConsumerService],
-  exports: [KafkaSqsService, KafkaDeleteConsumerService],
+  providers: [
+    KafkaService,
+    KafkaCreateFileConsumerService,
+    KafkaDeleteConsumerService,
+    DeleteTrashSchedulerService,
+  ],
+  exports: [KafkaCreateFileConsumerService, KafkaDeleteConsumerService],
   imports: [PrismaModule, S3ModuleModule],
 })
 export class BridgeModule {}

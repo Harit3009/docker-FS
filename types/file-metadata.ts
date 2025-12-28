@@ -4,4 +4,5 @@ export interface S3FileMetaData {
   fileid: string;
   filesystempath: string;
   parentid: string;
+  overwrite: 'true' | 'false';
 }

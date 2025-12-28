@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpException,
+  HttpStatus,
   Param,
   Post,
   Put,
@@ -19,6 +21,7 @@ import { S3Service } from 'src/s3-module/s3-service.service';
 import { v4 as uuidV4 } from 'uuid';
 import {
   CreateFolderBodyDto,
+  DeleteFileRequestParamsDto,
   DeleteFolderRequestParamsDto,
   GetPutSignedURLBodyDto,
   GetSignedUrlParamsDTO,
@@ -94,7 +97,7 @@ export class FileSystemController {
     });
 
     if (!folder) {
-      throw new UnauthorizedException('Unauthorised to access folder');
+      throw new UnauthorizedException('No Folder found!');
     }
 
     const args: Prisma.FileFindManyArgs = {
@@ -131,13 +134,25 @@ export class FileSystemController {
     const folder = await this.prisma.getFolderById(body.parentFolderId);
 
     if (folder.createdById !== user.id) {
-      throw new UnauthorizedException('Folder access denied');
+      throw new UnauthorizedException('Does not exist');
+    }
+
+    const existing = await this.prisma.extended.file.findFirst({
+      where: {
+        createdById: user.id,
+        fileSystemPath: `${folder.fileSystemPath}${body.filename}`,
+      },
+    });
+
+    if (!body.overwriteIfExisting && existing) {
+      throw new HttpException({ message: 'duplicate' }, HttpStatus.CONFLICT);
     }
 
     const url = await this.s3Service.getPutSignedUrlForFile(folder, {
       fileName: body.filename,
       createdBy: { email: user.email, id: user.id },
       contentType: body.contentType,
+      overWrite: body.overwriteIfExisting,
     });
     return { url };
   }
@@ -176,12 +191,8 @@ export class FileSystemController {
       data: {
         fileSystemPath: parenFolder.fileSystemPath + body.folderName + '/',
         createdBy: { connect: { id: user.id } },
-        s3Key: parenFolder.s3Key + createdFolderId,
         id: createdFolderId,
         parent: { connect: { id: parenFolder.id } },
-      },
-      omit: {
-        s3Key: true,
       },
     });
     return data;
@@ -246,20 +257,66 @@ export class FileSystemController {
       throw new UnauthorizedException('Unknown Folder');
     }
 
-    const { id } = await this.prisma.folder.update({
-      where: {
-        id: param.folderId,
-      },
-      data: {
-        isDeleted: true,
-        deletedAt: new Date(),
-      },
+    await this.prisma.$transaction(async (tx) => {
+      const { size, parentId } = await tx.folder.update({
+        where: {
+          id: param.folderId,
+        },
+        data: {
+          isDeleted: true,
+          deletedAt: new Date(),
+        },
+        select: {
+          size: true,
+          parentId: true,
+        },
+      });
+      await this.prisma.updateSize(tx, size * BigInt(-1), parentId);
     });
 
     await this.kafkaDelPublisher.publishDeleteFolderRoot(folderToDelete);
 
     return {
-      deletedFolder: id,
+      deletedFolder: param.folderId,
+    };
+  }
+
+  @Delete('file/:fileId')
+  async deleteFile(
+    @ReqUser() user: User,
+    @Param() param: DeleteFileRequestParamsDto,
+  ) {
+    const fileToDelete = await this.prisma.extended.file.findUnique({
+      where: {
+        id: param.fileId,
+        createdById: user.id,
+      },
+    });
+
+    if (!fileToDelete) {
+      throw new UnauthorizedException('Unknown Folder');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const { parentId, size } = await tx.file.update({
+        where: {
+          id: param.fileId,
+        },
+        data: {
+          isDeleted: true,
+          deletedAt: new Date(),
+        },
+        select: {
+          parentId: true,
+          size: true,
+        },
+      });
+
+      await this.prisma.updateSize(tx, size * BigInt(-1), parentId);
+    });
+
+    return {
+      deletedFile: param.fileId,
     };
   }
 }

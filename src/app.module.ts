@@ -8,6 +8,7 @@ import { FileSystemModule } from './file-system/file-system.module';
 import { S3ModuleModule } from './s3-module/s3-module.module';
 import { BridgeModule } from './bridge/bridge.module';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
     S3ModuleModule,
     BridgeModule,
     EventEmitterModule.forRoot(),
+    ScheduleModule.forRoot(),
   ],
   controllers: [AppController],
   providers: [AppService],

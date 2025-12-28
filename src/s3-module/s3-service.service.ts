@@ -1,5 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
+  DeleteObjectsCommand,
+  DeleteObjectsCommandInput,
   GetObjectCommand,
   GetObjectCommandInput,
   HeadObjectCommand,
@@ -16,6 +18,7 @@ import path from 'path';
 @Injectable()
 export class S3Service {
   private s3Client: S3Client;
+  private readonly logger = new Logger('s3Service');
   constructor() {
     this.s3Client = new S3Client({
       region: process.env.AWS_REGION || 'us-east-1',
@@ -36,10 +39,12 @@ export class S3Service {
       fileName,
       createdBy,
       contentType,
+      overWrite = false,
     }: {
       fileName: string;
       createdBy: { email: string; id: string };
       contentType: string;
+      overWrite: boolean;
     },
   ) {
     const fileId = uuidv4();
@@ -49,11 +54,14 @@ export class S3Service {
       Bucket: process.env.AWS_BUCKET_NAME,
       ContentType: contentType,
       Metadata: {
-        createdbyemail: createdBy.email,
-        filesystempath: `${parentFolder.fileSystemPath}${fileName}`,
+        createdbyemail: encodeURIComponent(createdBy.email),
+        filesystempath: encodeURIComponent(
+          `${parentFolder.fileSystemPath}${fileName}`,
+        ),
         createdbyid: createdBy.id,
         fileid: fileId,
         parentid: parentFolder.id,
+        overwrite: overWrite ? 'true' : 'false',
       },
     };
     return getSignedUrl(this.s3Client, new PutObjectCommand(command));
@@ -63,11 +71,23 @@ export class S3Service {
     s3Key: string,
     bucketName: string = process.env.AWS_BUCKET_NAME,
   ) {
-    const command: HeadObjectCommandInput = {
-      Key: s3Key,
-      Bucket: bucketName,
-    };
-    return this.s3Client.send(new HeadObjectCommand(command));
+    try {
+      this.logger.log(
+        'S3key Head object requested for >>>>',
+        s3Key,
+        bucketName,
+      );
+
+      const command: HeadObjectCommandInput = {
+        Key: s3Key,
+        Bucket: bucketName,
+      };
+
+      return this.s3Client.send(new HeadObjectCommand(command));
+    } catch (error) {
+      this.logger.error(error);
+      throw Error(error?.message || 'head object failed');
+    }
   }
 
   async getSignedUrlForDownload(
@@ -80,5 +100,18 @@ export class S3Service {
     };
 
     return getSignedUrl(this.s3Client, new GetObjectCommand(command));
+  }
+
+  async batchDeleteS3Objects(
+    s3Keys: string[],
+    bucketName: string = process.env.AWS_BUCKET_NAME,
+  ) {
+    this.logger.log('s3Keys>>>>>>>>>>>', s3Keys);
+    const command: DeleteObjectsCommandInput = {
+      Bucket: bucketName,
+      Delete: { Objects: s3Keys.map((Key) => ({ Key })) },
+    };
+
+    return this.s3Client.send(new DeleteObjectsCommand(command));
   }
 }

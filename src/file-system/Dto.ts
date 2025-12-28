@@ -1,5 +1,12 @@
 import { Transform, Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+} from 'class-validator';
 
 export class CursorWithId {
   @IsString()
@@ -14,6 +21,9 @@ export class GetPutSignedURLBodyDto {
   @IsString()
   @IsOptional()
   contentType?: string;
+  @IsBoolean()
+  @IsOptional()
+  overwriteIfExisting;
 }
 
 export class CreateFolderBodyDto {
@@ -63,6 +73,12 @@ export class DeleteFolderRequestParamsDto {
   @IsString()
   @IsUUID()
   folderId: string;
+}
+
+export class DeleteFileRequestParamsDto {
+  @IsString()
+  @IsUUID()
+  fileId: string;
 }
 
 export class GetSignedUrlParamsDTO {

@@ -93,7 +93,6 @@ export class PrismaService
   ): Promise<Folder> {
     return client.folder.create({
       data: {
-        s3Key: `${user.id}/`,
         fileSystemPath: '/',
         createdById: user.id,
       },
@@ -111,5 +110,23 @@ export class PrismaService
       },
     });
     return !!folder;
+  }
+
+  async updateSize(
+    client: TransactionClient,
+    deltaSize: bigint,
+    parentId: string,
+  ) {
+    const { parentId: nextParent } = await client.folder.update({
+      where: { id: parentId },
+      data: {
+        size: { increment: deltaSize },
+      },
+      select: { parentId: true },
+    });
+
+    if (nextParent) {
+      await this.updateSize(client, deltaSize, nextParent);
+    }
   }
 }

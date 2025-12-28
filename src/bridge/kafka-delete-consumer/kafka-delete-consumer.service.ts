@@ -1,17 +1,18 @@
-import { Injectable } from '@nestjs/common';
-import { KafkaSqsService } from '../kafka-sqs/kafka-sqs.service';
+import { Injectable, Logger } from '@nestjs/common';
 import { Folder } from '@prisma/client';
 import { Consumer } from 'kafkajs';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { KafkaService } from '../kafka/kafka.service';
 
 @Injectable()
 export class KafkaDeleteConsumerService {
   markChildrenForDeleteConsumer: Consumer;
   markChildrenForDeletionTopicName: string = 'mark-children-for-delete-topic';
   markChildrenDeletionDLQTopic: string = 'mark-children-for-deletion-dlq';
-
+  private logger = new Logger('kafkaDeleteFolderConsumer');
+  private retryLog: Record<string, number> = {};
   constructor(
-    private kafkaOrigin: KafkaSqsService,
+    private kafkaOrigin: KafkaService,
     private prisma: PrismaService,
   ) {
     this.markChildrenForDeleteConsumer = this.kafkaOrigin.kafka.consumer({
@@ -24,7 +25,7 @@ export class KafkaDeleteConsumerService {
       this.kafkaOrigin.connectionReadyEventEmitter.addListener(
         'producer connected',
         () => {
-          console.log('event listener executed in consumer');
+          this.logger.log('event listener executed in consumer');
           this.initializeConsumer();
         },
       );
@@ -53,12 +54,14 @@ export class KafkaDeleteConsumerService {
         eachMessage: async ({ message, topic, heartbeat, partition }) => {
           try {
             const folder = JSON.parse(message.value.toString()) as Folder;
+
             await this.processRecursiveDelete(
               folder.createdById,
               folder.fileSystemPath,
               heartbeat,
             );
 
+            this.logger.log('commiting offsets');
             await this.markChildrenForDeleteConsumer.commitOffsets([
               {
                 topic,
@@ -67,7 +70,17 @@ export class KafkaDeleteConsumerService {
               },
             ]);
           } catch (error) {
-            console.log('error >>>>', error);
+            if (this.retryLog[message.key[0]] < 3) {
+              this.retryLog[message.key[0]]++;
+              await this.markChildrenForDeleteConsumer.seek({
+                offset: message.offset,
+                partition,
+                topic,
+              });
+
+              return;
+            }
+            this.logger.log('error while delete child consumer >>>>', error);
             await this.kafkaOrigin.producer.send({
               messages: [message],
               topic: this.markChildrenDeletionDLQTopic,
@@ -77,7 +90,9 @@ export class KafkaDeleteConsumerService {
         autoCommit: false,
       });
     } catch (error) {
-      console.error('Failed to start delete event kafka consumer, retrying');
+      this.logger.error(
+        'Failed to start delete event kafka consumer, retrying',
+      );
       this.initializeConsumer();
     }
   }
@@ -109,7 +124,11 @@ export class KafkaDeleteConsumerService {
         RETURNING id;
       `;
 
-      if (result.length < BATCH_SIZE) filesRemaining = false;
+      this.logger.log('recursice delete files ', result);
+
+      if (result.length < BATCH_SIZE) {
+        filesRemaining = false;
+      }
     }
 
     // ... Repeat loop for "Folder" table ...
@@ -131,14 +150,9 @@ export class KafkaDeleteConsumerService {
         WHERE id IN (SELECT id FROM batch)
         RETURNING id;
       `;
+      this.logger.log('recursice delete folders ', result);
 
       if (result.length < BATCH_SIZE) folderRemaining = false;
     }
-
-    // Final cleanup of the root folder
-    await this.prisma.folder.updateMany({
-      where: { fileSystemPath: targetPath, createdById: userId },
-      data: { isDeleted: true, deletedAt: new Date() },
-    });
   }
 }
