@@ -27,6 +27,7 @@ export class KafkaCreateFileConsumerService
   private sqsS3: SQSClient;
   private isPollingS3EventSqs: Boolean = false;
   private _uploadFileTopicName = 'file-uploaded';
+  public _folderZipUploadedTopicName = 'zip-folder-uploaded';
 
   private readonly logger = new Logger('KafkaCreateFileConsumerService');
 
@@ -180,23 +181,43 @@ export class KafkaCreateFileConsumerService
         const { Metadata } = await this.s3Service.getHeadObjectCommand(s3Key);
         const fileMeta = Metadata as unknown as S3FileMetaData;
         // Push to Kafka
-        this.logger.log('kaafka publish called');
-        await this.kafkaOrigin.producer.send({
-          topic: this._uploadFileTopicName, // Your Kafka Topic
-          messages: [
-            {
-              value: JSON.stringify({
-                s3Key,
-                bucket: process.env.AWS_BUCKET_NAME,
-              }),
-              headers: {
-                FileSystemPath: decodeURIComponent(fileMeta.filesystempath),
-                createdById: fileMeta.createdbyid,
+
+        const needsExtraction = fileMeta.isZippedFolder === 'true';
+
+        if (needsExtraction) {
+          await this.kafkaOrigin.producer.send({
+            topic: this._folderZipUploadedTopicName, // Your Kafka Topic
+            messages: [
+              {
+                value: JSON.stringify({
+                  s3Key,
+                  bucket: process.env.AWS_BUCKET_NAME,
+                }),
+                headers: {
+                  FileSystemPath: decodeURIComponent(fileMeta.filesystempath),
+                  createdById: fileMeta.createdbyid,
+                },
               },
-            },
-          ],
-        });
-        this.logger.log('kaafka publish finished');
+            ],
+          });
+        } else {
+          await this.kafkaOrigin.producer.send({
+            topic: this._uploadFileTopicName, // Your Kafka Topic
+            messages: [
+              {
+                value: JSON.stringify({
+                  s3Key,
+                  bucket: process.env.AWS_BUCKET_NAME,
+                }),
+                headers: {
+                  FileSystemPath: decodeURIComponent(fileMeta.filesystempath),
+                  createdById: fileMeta.createdbyid,
+                },
+              },
+            ],
+          });
+          this.logger.log('kaafka publish finished');
+        }
       }
     }
 

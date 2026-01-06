@@ -5,4 +5,5 @@ export interface S3FileMetaData {
   filesystempath: string;
   parentid: string;
   overwrite: 'true' | 'false';
+  isZippedFolder: 'true' | 'false';
 }

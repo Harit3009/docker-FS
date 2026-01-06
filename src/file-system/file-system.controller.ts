@@ -5,6 +5,7 @@ import {
   Get,
   HttpException,
   HttpStatus,
+  Logger,
   Param,
   Post,
   Put,
@@ -20,21 +21,26 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { S3Service } from 'src/s3-module/s3-service.service';
 import { v4 as uuidV4 } from 'uuid';
 import {
+  CompleteMultipartUploadDto,
   CreateFolderBodyDto,
   DeleteFileRequestParamsDto,
   DeleteFolderRequestParamsDto,
+  GetMultipartURLsBodyDto,
   GetPutSignedURLBodyDto,
   GetSignedUrlParamsDTO,
+  InitiateFolderUploadDTO,
   ListRecordDto,
   ListRecordResponseDto,
   RenameRecordDTO,
 } from './Dto';
 import { plainToInstance } from 'class-transformer';
 import { KafkaDeleteConsumerService } from 'src/bridge/kafka-delete-consumer/kafka-delete-consumer.service';
+import path from 'path';
 
 @UseGuards(AuthGuard([PASSPORT_STRATEGIES.INCOMING_JWT_VERIFICATION]))
 @Controller('file-system')
 export class FileSystemController {
+  private logger = new Logger('file system controller');
   constructor(
     private s3Service: S3Service,
     private prisma: PrismaService,
@@ -318,5 +324,136 @@ export class FileSystemController {
     return {
       deletedFile: param.fileId,
     };
+  }
+
+  @Post('multipart-upload/get-upload-id')
+  async multiPartUploadId(
+    @Body() body: GetPutSignedURLBodyDto,
+    @ReqUser() user: User,
+  ) {
+    const parentFolder = await this.prisma.extended.folder.findUnique({
+      where: {
+        id: body.parentFolderId,
+      },
+    });
+
+    if (parentFolder.createdById !== user.id) {
+      throw new UnauthorizedException('Does not exist');
+    }
+
+    const existing = await this.prisma.extended.file.findFirst({
+      where: {
+        createdById: user.id,
+        fileSystemPath: `${parentFolder.fileSystemPath}${body.filename}`,
+      },
+    });
+
+    if (!body.overwriteIfExisting && existing) {
+      throw new HttpException({ message: 'duplicate' }, HttpStatus.CONFLICT);
+    }
+
+    const { UploadId, s3Key } = await this.s3Service.getMultiPartUploadId(
+      parentFolder,
+      {
+        contentType: body.contentType,
+        fileName: body.filename,
+        overWrite: body.overwriteIfExisting,
+        createdBy: {
+          id: user.id,
+          email: user.email,
+        },
+      },
+    );
+
+    return {
+      UploadId,
+      s3Key,
+    };
+  }
+
+  @Post('multipart-upload/get-upload-urls')
+  async multiPartUploadUrls(
+    @Body() body: GetMultipartURLsBodyDto,
+    @ReqUser() user: User,
+  ) {
+    const { s3Key, uploadId, parentFolderId, partCount } = body;
+
+    const parentFolder = await this.prisma.extended.folder.findUnique({
+      where: { id: parentFolderId },
+    });
+
+    if (parentFolder.createdById !== user.id) {
+      throw new UnauthorizedException('Does not exist');
+    }
+
+    const promises = [];
+    for (let i = 1; i <= partCount; i++) {
+      promises.push(this.s3Service.getMultiPartUploadUrl(s3Key, uploadId, i));
+    }
+    const urls = await Promise.all(promises);
+
+    return {
+      urls,
+    };
+  }
+
+  @Post('multipart-upload/complete-upload')
+  async completeMultipartUpload(
+    @Body() body: CompleteMultipartUploadDto,
+    @ReqUser() user: User,
+  ) {
+    const { s3Key, uploadId, parentFolderId, parts } = body;
+    const parentFolder = await this.prisma.extended.folder.findUnique({
+      where: { id: parentFolderId },
+    });
+    if (parentFolder.createdById !== user.id) {
+      throw new UnauthorizedException('Does not exist');
+    }
+
+    await this.s3Service.completeMultipartUpload(s3Key, uploadId, parts);
+
+    return {
+      message: 'sucessfully uploaded the records',
+    };
+  }
+
+  @Post('folder-upload/initiate')
+  async folderUploadInitiation(
+    @Body() body: InitiateFolderUploadDTO,
+    @ReqUser() user: User,
+  ) {
+    const { folderName, parentFolderId, overWrite } = body;
+
+    const parentFolder = await this.prisma.extended.folder.findUnique({
+      where: { id: parentFolderId, createdById: user.id },
+    });
+
+    if (!parentFolder) {
+      throw new UnauthorizedException('Does not exist');
+    }
+
+    const existing = await this.prisma.extended.folder.findFirst({
+      where: {
+        createdById: user.id,
+        fileSystemPath: `${parentFolder.fileSystemPath}${body.folderName}`,
+      },
+    });
+
+    if (!body.overWrite && existing) {
+      throw new HttpException({ message: 'duplicate' }, HttpStatus.CONFLICT);
+    }
+
+    const { UploadId, s3Key } = await this.s3Service.getMultiPartUploadId(
+      parentFolder,
+      {
+        overWrite,
+        fileName: folderName,
+        createdBy: { id: user.id, email: user.email },
+        contentType: 'application/x-zip-compressed',
+        isZippedFolder: true,
+      },
+    );
+
+    return { s3Key, UploadId };
   }
 }

@@ -1,11 +1,15 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsInt,
+  IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   Min,
+  ValidateNested,
 } from 'class-validator';
 
 export class CursorWithId {
@@ -26,6 +30,43 @@ export class GetPutSignedURLBodyDto {
   overwriteIfExisting;
 }
 
+export class GetMultipartURLsBodyDto {
+  @IsString()
+  uploadId: string;
+  @IsInt()
+  partCount: number;
+  @IsString()
+  s3Key: string;
+  @IsString()
+  parentFolderId: string;
+}
+
+export class MultipartPartArrayDto {
+  @IsNumber()
+  @IsNotEmpty()
+  partNumber: number;
+
+  @IsString()
+  @IsNotEmpty()
+  etag: string;
+}
+
+export class CompleteMultipartUploadDto {
+  @IsString()
+  uploadId: string;
+
+  @IsString()
+  s3Key: string;
+
+  @IsString()
+  parentFolderId: string;
+
+  @IsArray()
+  @ValidateNested({ each: true }) // <--- Validates every item in the array
+  @Type(() => MultipartPartArrayDto) // <--- CRITICAL: Transforms plain objects to class instances
+  parts: { partNumber: number; etag: string }[];
+}
+
 export class CreateFolderBodyDto {
   @IsString()
   parentFolderId: string;
@@ -34,7 +75,7 @@ export class CreateFolderBodyDto {
 }
 
 export class ListRecordDto {
-  @IsString()
+  @IsUUID()
   parentFolderId: string;
 
   @Type(() => Number)
@@ -49,7 +90,7 @@ export class ListRecordDto {
 }
 
 export class RenameRecordDTO {
-  @IsString()
+  @IsUUID()
   folderToRenameId: string;
 
   @IsString()
@@ -70,19 +111,26 @@ export class ListRecordResponseDto extends WithBigIntSize {
 }
 
 export class DeleteFolderRequestParamsDto {
-  @IsString()
   @IsUUID()
   folderId: string;
 }
 
 export class DeleteFileRequestParamsDto {
-  @IsString()
   @IsUUID()
   fileId: string;
 }
 
 export class GetSignedUrlParamsDTO {
-  @IsString()
   @IsUUID()
   fileId: string;
+}
+
+export class InitiateFolderUploadDTO {
+  @IsUUID()
+  parentFolderId: string;
+  @IsString()
+  folderName: string;
+  @IsBoolean()
+  @IsOptional()
+  overWrite?: boolean;
 }

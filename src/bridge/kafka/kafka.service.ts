@@ -26,6 +26,7 @@ export class KafkaService {
   public kafka: Kafka;
   producer: Producer;
   isKafkaConnected: boolean = false;
+  producerConnectedEventName = 'producer connected';
 
   connectionReadyEventEmitter = new EventEmitter2({
     maxListeners: Infinity,
@@ -46,9 +47,12 @@ export class KafkaService {
 
   private async initializeKafkaConnection() {
     await this.producer.connect();
-    this.connectionReadyEventEmitter.addListener('producer connected', () => {
-      this.isKafkaConnected = true;
-    });
-    this.connectionReadyEventEmitter.emit('producer connected');
+    this.connectionReadyEventEmitter.addListener(
+      this.producerConnectedEventName,
+      () => {
+        this.isKafkaConnected = true;
+      },
+    );
+    this.connectionReadyEventEmitter.emit(this.producerConnectedEventName);
   }
 }

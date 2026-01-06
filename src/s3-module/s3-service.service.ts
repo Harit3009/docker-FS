@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
+  CreateMultipartUploadCommandInput,
+  CreateMultipartUploadCommandOutput,
   DeleteObjectsCommand,
   DeleteObjectsCommandInput,
   GetObjectCommand,
@@ -9,11 +13,21 @@ import {
   PutObjectCommand,
   PutObjectCommandInput,
   S3Client,
+  UploadPartCommand,
+  UploadPartCommandInput,
 } from '@aws-sdk/client-s3';
 import { Folder } from '@prisma/client';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
+
+export interface RequiredMetaDataForFileUpload {
+  fileName: string;
+  createdBy: { email: string; id: string };
+  contentType: string;
+  overWrite: boolean;
+  isZippedFolder?: boolean;
+}
 
 @Injectable()
 export class S3Service {
@@ -40,12 +54,7 @@ export class S3Service {
       createdBy,
       contentType,
       overWrite = false,
-    }: {
-      fileName: string;
-      createdBy: { email: string; id: string };
-      contentType: string;
-      overWrite: boolean;
-    },
+    }: RequiredMetaDataForFileUpload,
   ) {
     const fileId = uuidv4();
 
@@ -113,5 +122,77 @@ export class S3Service {
     };
 
     return this.s3Client.send(new DeleteObjectsCommand(command));
+  }
+
+  async getMultiPartUploadId(
+    parentFolder: Folder,
+    details: RequiredMetaDataForFileUpload,
+    bucketName: string = process.env.AWS_BUCKET_NAME,
+  ) {
+    const { createdBy, fileName, overWrite, contentType } = details;
+    const fileId = uuidv4();
+    const s3Key: string = path.join(createdBy.id, fileId);
+    const command: CreateMultipartUploadCommandInput = {
+      Key: s3Key,
+      Bucket: bucketName,
+      ContentType: contentType,
+      Metadata: {
+        createdbyemail: encodeURIComponent(createdBy.email),
+        filesystempath: encodeURIComponent(
+          `${parentFolder.fileSystemPath}${fileName}`,
+        ),
+        createdbyid: createdBy.id,
+        fileid: fileId,
+        parentid: parentFolder.id,
+        overwrite: overWrite ? 'true' : 'false',
+        needsExtraction: details.isZippedFolder ? 'true' : 'false',
+      },
+    };
+
+    const reposne = await this.s3Client.send(
+      new CreateMultipartUploadCommand(command),
+    );
+    return { ...reposne, s3Key };
+  }
+
+  async getMultiPartUploadUrl(
+    s3Key: string,
+    UploadId: string,
+    PartNumber: number,
+    bucketName: string = process.env.AWS_BUCKET_NAME,
+  ) {
+    const command: UploadPartCommandInput = {
+      Key: s3Key,
+      Bucket: bucketName,
+      UploadId,
+      PartNumber,
+    };
+
+    return getSignedUrl(this.s3Client, new UploadPartCommand(command), {
+      expiresIn: 60,
+    });
+  }
+
+  async completeMultipartUpload(
+    s3Key: string,
+    uploadId: string,
+    parts: { partNumber: number; etag: string }[],
+    bucketName: string = process.env.AWS_BUCKET_NAME,
+  ) {
+    const command = new CompleteMultipartUploadCommand({
+      Bucket: bucketName,
+      Key: s3Key,
+      UploadId: uploadId,
+      MultipartUpload: {
+        Parts: parts
+          .sort((a, b) => a.partNumber - b.partNumber)
+          .map((p) => ({
+            PartNumber: p.partNumber,
+            ETag: p.etag,
+          })),
+      },
+    });
+
+    return await this.s3Client.send(command);
   }
 }
