@@ -6,6 +6,10 @@ import { KafkaDeleteConsumerService } from './kafka-delete-consumer/kafka-delete
 import { DeleteTrashSchedulerService } from './delete-trash-scheduler/delete-trash-scheduler.service';
 import { KafkaService } from './kafka/kafka.service';
 import { KafkaExtractZipService } from './kafka-extract-zip/kafka-extract-zip.service';
+import { KafkaIndexFileServiceService } from './kafka-index-file-service/kafka-index-file-service.service';
+import { OpensearchService } from './open-search/open-search.service';
+import { PdfParserService } from './pdf-parser/pdf-parser.service';
+import { EmbeddingService } from './embedding/embedding.service';
 
 @Module({
   providers: [
@@ -14,8 +18,19 @@ import { KafkaExtractZipService } from './kafka-extract-zip/kafka-extract-zip.se
     KafkaDeleteConsumerService,
     DeleteTrashSchedulerService,
     KafkaExtractZipService,
+    KafkaIndexFileServiceService,
+    OpensearchService,
+    PdfParserService,
+    EmbeddingService,
   ],
-  exports: [KafkaCreateFileConsumerService, KafkaDeleteConsumerService],
+  exports: [
+    KafkaCreateFileConsumerService,
+    KafkaDeleteConsumerService,
+    OpensearchService,
+    EmbeddingService,
+  ],
   imports: [PrismaModule, S3ModuleModule],
 })
-export class BridgeModule {}
+export class BridgeModule {
+  constructor() {}
+}

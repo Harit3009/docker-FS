@@ -134,3 +134,12 @@ export class InitiateFolderUploadDTO {
   @IsOptional()
   overWrite?: boolean;
 }
+
+export class SearchDocumentsDto {
+  @IsString()
+  @IsOptional()
+  filename?: string;
+
+  @IsString()
+  search: string;
+}

@@ -13,11 +13,8 @@ import { S3Service } from 'src/s3-module/s3-service.service';
 import { S3FileMetaData } from 'types/file-metadata';
 import { Prisma } from '@prisma/client';
 import { KafkaService } from '../kafka/kafka.service';
-
-interface FileUploadMessage {
-  s3Key: string;
-  bucket: string;
-}
+import { KAFKA_TOPIC_NAMES } from './../../../constants';
+import { FileUploadMessage } from 'types/kafka-messages';
 
 @Injectable()
 export class KafkaCreateFileConsumerService
@@ -26,8 +23,6 @@ export class KafkaCreateFileConsumerService
   private dbCreateConsumer: Consumer;
   private sqsS3: SQSClient;
   private isPollingS3EventSqs: Boolean = false;
-  private _uploadFileTopicName = 'file-uploaded';
-  public _folderZipUploadedTopicName = 'zip-folder-uploaded';
 
   private readonly logger = new Logger('KafkaCreateFileConsumerService');
 
@@ -57,7 +52,7 @@ export class KafkaCreateFileConsumerService
   private async initialiseConsumerConnection() {
     await this.dbCreateConsumer.connect();
     await this.dbCreateConsumer.subscribe({
-      topics: [this._uploadFileTopicName],
+      topics: [KAFKA_TOPIC_NAMES.FILE_UPLOADED],
     });
 
     await this.dbCreateConsumer.run({
@@ -66,8 +61,9 @@ export class KafkaCreateFileConsumerService
           const message = JSON.parse(
             _message.value.toString(),
           ) as FileUploadMessage;
-          this.logger.log(message);
-
+          this.logger.log(
+            `Processing file upload message for s3Key: ${message.s3Key}, ${JSON.stringify(message)}`,
+          );
           const { Metadata, ContentLength, ContentType } =
             await this.s3Service.getHeadObjectCommand(
               message.s3Key,
@@ -115,7 +111,13 @@ export class KafkaCreateFileConsumerService
                 },
                 select: { size: true, id: true },
               });
-              const deltaSize = BigInt(ContentLength) - BigInt(deleted.size);
+              const deltaSize =
+                BigInt(ContentLength) - BigInt(deleted?.size || 0);
+              if (!deleted?.size) {
+                this.logger.debug(
+                  'Overwrite specified but no existing file found',
+                );
+              }
               await createEntry(tx);
               await this.prismaService.updateSize(
                 tx,
@@ -124,8 +126,10 @@ export class KafkaCreateFileConsumerService
               );
             });
           }
-          this.logger.log('metadata');
-          this.logger.log(Metadata);
+
+          this.logger.log(
+            `File record created successfully for s3Key: ${message.s3Key}, fileMeta: ${Metadata}`,
+          );
         } catch (error) {
           this.logger.error(error);
           this.kafkaOrigin.producer.send({
@@ -167,10 +171,6 @@ export class KafkaCreateFileConsumerService
 
   private async processMessage(sqsMessage: Message) {
     const body = JSON.parse(sqsMessage.Body);
-    this.logger.log('body >>>>>>>>>');
-    this.logger.log(body);
-    this.logger.log('record >>>>>>>>>');
-    this.logger.log(body.Records);
     // S3 Event Structure is inside 'Records'
     if (body.Records) {
       for (const record of body.Records) {
@@ -182,16 +182,19 @@ export class KafkaCreateFileConsumerService
         const fileMeta = Metadata as unknown as S3FileMetaData;
         // Push to Kafka
 
-        const needsExtraction = fileMeta.isZippedFolder === 'true';
-
+        const needsExtraction = fileMeta.needsextraction === 'true';
+        this.logger.log(
+          `File needs extraction: ${needsExtraction}, filesystempath: ${fileMeta.filesystempath}, fileMeta: ${JSON.stringify(Metadata)} `,
+        );
         if (needsExtraction) {
           await this.kafkaOrigin.producer.send({
-            topic: this._folderZipUploadedTopicName, // Your Kafka Topic
+            topic: KAFKA_TOPIC_NAMES.FOLDER_ZIP_UPLOADED, // Your Kafka Topic
             messages: [
               {
                 value: JSON.stringify({
                   s3Key,
                   bucket: process.env.AWS_BUCKET_NAME,
+                  FileSystemPath: decodeURIComponent(fileMeta.filesystempath),
                 }),
                 headers: {
                   FileSystemPath: decodeURIComponent(fileMeta.filesystempath),
@@ -202,12 +205,13 @@ export class KafkaCreateFileConsumerService
           });
         } else {
           await this.kafkaOrigin.producer.send({
-            topic: this._uploadFileTopicName, // Your Kafka Topic
+            topic: KAFKA_TOPIC_NAMES.FILE_UPLOADED, // Your Kafka Topic
             messages: [
               {
                 value: JSON.stringify({
                   s3Key,
                   bucket: process.env.AWS_BUCKET_NAME,
+                  FileSystemPath: decodeURIComponent(fileMeta.filesystempath),
                 }),
                 headers: {
                   FileSystemPath: decodeURIComponent(fileMeta.filesystempath),

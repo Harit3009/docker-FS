@@ -3,12 +3,11 @@ import { Folder } from '@prisma/client';
 import { Consumer } from 'kafkajs';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { KafkaService } from '../kafka/kafka.service';
+import { KAFKA_TOPIC_NAMES } from '../../../constants';
 
 @Injectable()
 export class KafkaDeleteConsumerService {
   markChildrenForDeleteConsumer: Consumer;
-  markChildrenForDeletionTopicName: string = 'mark-children-for-delete-topic';
-  markChildrenDeletionDLQTopic: string = 'mark-children-for-deletion-dlq';
   private logger = new Logger('kafkaDeleteFolderConsumer');
   private retryLog: Record<string, number> = {};
   constructor(
@@ -34,7 +33,7 @@ export class KafkaDeleteConsumerService {
 
   async publishDeleteFolderRoot(folder: Folder) {
     this.kafkaOrigin.producer.send({
-      topic: this.markChildrenForDeletionTopicName,
+      topic: KAFKA_TOPIC_NAMES.MARK_CHILDREN_FOR_DELETION,
       messages: [
         {
           key: folder.id,
@@ -48,7 +47,7 @@ export class KafkaDeleteConsumerService {
     try {
       await this.markChildrenForDeleteConsumer.connect();
       await this.markChildrenForDeleteConsumer.subscribe({
-        topic: this.markChildrenForDeletionTopicName,
+        topic: KAFKA_TOPIC_NAMES.MARK_CHILDREN_FOR_DELETION,
       });
       this.markChildrenForDeleteConsumer.run({
         eachMessage: async ({ message, topic, heartbeat, partition }) => {
@@ -83,7 +82,7 @@ export class KafkaDeleteConsumerService {
             this.logger.log('error while delete child consumer >>>>', error);
             await this.kafkaOrigin.producer.send({
               messages: [message],
-              topic: this.markChildrenDeletionDLQTopic,
+              topic: KAFKA_TOPIC_NAMES.MARK_CHILDEREN_FOR_DELETE_DLQ,
             });
           }
         },

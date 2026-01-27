@@ -20,6 +20,9 @@ import { Folder } from '@prisma/client';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
+import { Readable } from 'stream';
+import { Upload } from '@aws-sdk/lib-storage';
+import { S3FileMetaData } from 'types/file-metadata';
 
 export interface RequiredMetaDataForFileUpload {
   fileName: string;
@@ -194,5 +197,54 @@ export class S3Service {
     });
 
     return await this.s3Client.send(command);
+  }
+
+  async getObjectStream(
+    s3Key: string,
+    bucketName: string = process.env.AWS_BUCKET_NAME,
+  ) {
+    const command: GetObjectCommandInput = {
+      Bucket: bucketName,
+      Key: s3Key,
+    };
+
+    const response = await this.s3Client.send(new GetObjectCommand(command));
+    return response.Body as Readable;
+  }
+
+  async uploadObjectStream(
+    stream: Readable,
+    s3Key: string,
+    metaData: Record<string, string>,
+    ContentType: string,
+    ContentLength?: number,
+  ) {
+    this.logger.log('Uploading stream to S3 with key:', s3Key);
+    const parallelUploads3 = new Upload({
+      client: this.s3Client,
+      params: {
+        Bucket: process.env.AWS_BUCKET_NAME,
+        Key: s3Key,
+        Body: stream, // Pass the stream directly
+        Metadata: metaData,
+        ContentType,
+        ContentLength,
+      },
+    });
+
+    // Execute the upload
+    return parallelUploads3.done();
+  }
+
+  parseFileMetaData(metadata: Record<string, string>): S3FileMetaData {
+    return {
+      createdbyemail: decodeURIComponent(metadata.createdbyemail || ''),
+      filesystempath: decodeURIComponent(metadata.filesystempath || ''),
+      createdbyid: metadata.createdbyid || '',
+      fileid: metadata.fileid || '',
+      parentid: metadata.parentid || '',
+      overwrite: metadata.overwrite === 'true' ? 'true' : 'false',
+      needsextraction: metadata.needsextraction === 'true' ? 'true' : 'false',
+    };
   }
 }
