@@ -106,7 +106,7 @@ KAFKA_GROUP_ID=file-system-consumer-group
 # OpenSearch
 OPENSEARCH_NODE=http://localhost:9200
 OPENSEARCH_USERNAME=admin
-OPENSEARCH_PASSWORD=StrongPassword123
+OPENSEARCH_PASSWORD=StrongPassword123  # Change this in production!
 
 # AI Services (choose one or configure multiple)
 # Google Gemini
@@ -236,7 +236,7 @@ npm run format
 # Create a new migration
 npx prisma migrate dev --name migration_name
 
-# Reset database (WARNING: deletes all data)
+# ⚠️ WARNING: Reset database (DELETES ALL DATA - use only in development)
 npx prisma migrate reset
 
 # Open Prisma Studio (GUI for database)
