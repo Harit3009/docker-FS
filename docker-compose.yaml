@@ -3,7 +3,6 @@ version: '3.8'
 services:
   # ----------------------------------------------------------------
   # 1. POSTGRESQL (Relational Metadata Store)
-  # Connect URL: postgres://admin:password@localhost:5432/file_system
   # ----------------------------------------------------------------
   postgres:
     image: postgres:15-alpine
@@ -16,12 +15,13 @@ services:
     ports:
       - '5432:5432'
     volumes:
+      # Optional: Map this to SSD if you want DB persistence too
       - postgres_data:/var/lib/postgresql/data
     networks:
       - fs_network
 
   # ----------------------------------------------------------------
-  # 3. KAFKA (KRaft Mode - No Zookeeper)
+  # 2. KAFKA (KRaft Mode)
   # ----------------------------------------------------------------
   kafka:
     image: confluentinc/cp-kafka:7.5.0
@@ -31,22 +31,15 @@ services:
     volumes:
       - kafka_data:/var/lib/kafka/data
     environment:
-      # --- KRAFT CONFIGURATION ---
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      # We need a fixed Cluster ID for KRaft to start. This is a random UUID.
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
-
-      # --- NETWORK ---
-      # Listeners: Controller (internal), Internal Docker, External Localhost
       KAFKA_LISTENERS: PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-
-      # --- SPEED OPTIMIZATIONS (From before) ---
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
@@ -56,10 +49,7 @@ services:
       KAFKA_HEAP_OPTS: '-Xmx512m -Xms512m'
     networks:
       - fs_network
-  # ----------------------------------------------------------------
-  # 3b. KAFKA UI (Web Interface)
-  # URL: http://localhost:8080
-  # ----------------------------------------------------------------
+
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: fs_kafka_ui
@@ -68,24 +58,22 @@ services:
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
-      # KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
     networks:
       - fs_network
     depends_on:
       - kafka
 
   # ----------------------------------------------------------------
-  # 4. OPENSEARCH (Search Engine)
-  # Connect URL: https://localhost:9200 (User: admin / Pass: StrongPassword123!)
+  # 3. OPENSEARCH & DASHBOARDS
   # ----------------------------------------------------------------
   opensearch:
     image: opensearchproject/opensearch:2.11.0
     container_name: fs_opensearch
     environment:
       - discovery.type=single-node
-      - bootstrap.memory_lock=true # Disable swapping for performance
-      - 'OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m' # Limit memory usage
-      - 'OPENSEARCH_INITIAL_ADMIN_PASSWORD=StrongPassword123' # Required by v2+
+      - bootstrap.memory_lock=true
+      - 'OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m'
+      - 'OPENSEARCH_INITIAL_ADMIN_PASSWORD=StrongPassword123!'
       - 'DISABLE_SECURITY_PLUGIN=true'
     ulimits:
       memlock:
@@ -102,8 +90,6 @@ services:
     networks:
       - fs_network
 
-  # 5. OPENSEARCH DASHBOARDS (GUI for viewing data)
-  # URL: http://localhost:5601
   opensearch-dashboards:
     image: opensearchproject/opensearch-dashboards:2.11.0
     container_name: fs_dashboards
@@ -111,15 +97,14 @@ services:
       - '5601:5601'
     environment:
       OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
-      DISABLE_SECURITY_DASHBOARDS_PLUGIN: 'true' # Disable security for local dev
+      DISABLE_SECURITY_DASHBOARDS_PLUGIN: 'true'
     networks:
       - fs_network
     depends_on:
       - opensearch
 
   # ----------------------------------------------------------------
-  # 6. LOCALSTACK (Mock S3)
-  # Endpoint: http://localhost:4566
+  # 4. LOCALSTACK (S3/SQS) - FIXED PERSISTENCE
   # ----------------------------------------------------------------
   localstack:
     image: localstack/localstack
@@ -130,20 +115,97 @@ services:
       - SERVICES=s3,sqs,sns
       - DEBUG=1
       - DOCKER_HOST=unix:///var/run/docker.sock
+      # Modern persistence config
       - PERSISTENCE=1
     volumes:
-      - localstack_data:/var/lib/localstack
+      # Mount the Docker Socket (Required for LocalStack to spawn Lambdas)
       - '/var/run/docker.sock:/var/run/docker.sock'
+      # Init scripts
       - './localstack-init.sh:/etc/localstack/init/ready.d/init.sh'
+      # === FIX: BIND MOUNT TO SSD FOR PERSISTENCE ===
+      - /Volumes/T7/fs_project_data/localstack:/var/lib/localstack
     networks:
       - fs_network
+    user: '0:0' # Run as root to ensure it can write to the external SSD
+
+  # ================================================================
+  # 5. OBSERVABILITY STACK (Data on SSD)
+  # ================================================================
+
+  # A. JAEGER (Tracing)
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: fs_jaeger
+    ports:
+      - '16686:16686' # Web UI
+      - '4317:4317' # OTLP gRPC
+      - '4318:4318' # OTLP HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - fs_network
+
+  # B. PROMETHEUS (Metrics - 10 Year Retention)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: fs_prometheus
+    user: '0:0' # Root for SSD permissions
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=10y' # Keep for 10 years
+      - '--storage.tsdb.retention.size=0' # Unlimited size
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+      # PERSISTENCE TO SSD
+      - /Volumes/T7/fs_project_data/prometheus:/prometheus
+    ports:
+      - '9090:9090'
+    networks:
+      - fs_network
+
+  # C. LOKI (Logs - Indefinite Retention)
+  loki:
+    image: grafana/loki:latest
+    container_name: fs_loki
+    user: '0:0'
+    # Ensure your config file has retention limits REMOVED
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./observability/loki-config.yaml:/etc/loki/local-config.yaml
+      # PERSISTENCE TO SSD
+      - /Volumes/T7/fs_project_data/loki:/loki
+    ports:
+      - '3100:3100'
+    networks:
+      - fs_network
+
+  # D. GRAFANA (Dashboard - Saved to SSD)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: fs_grafana
+    user: '0:0'
+    volumes:
+      # PERSISTENCE TO SSD
+      - /Volumes/T7/fs_project_data/grafana:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    ports:
+      - '3001:3000'
+    networks:
+      - fs_network
+    depends_on:
+      - prometheus
+      - loki
+      - jaeger
 
 networks:
   fs_network:
     driver: bridge
 
 volumes:
+  # Internal volumes for services we didn't map to SSD yet
   postgres_data:
   opensearch_data:
-  localstack_data:
   kafka_data:

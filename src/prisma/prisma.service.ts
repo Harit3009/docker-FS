@@ -117,16 +117,20 @@ export class PrismaService
     deltaSize: bigint,
     parentId: string,
   ) {
-    const { parentId: nextParent } = await client.folder.update({
-      where: { id: parentId },
-      data: {
-        size: { increment: deltaSize },
-      },
-      select: { parentId: true },
-    });
+    await client.$executeRaw`WITH RECURSIVE folderSubTree AS (
+      SELECT id, "parentId" from "Folder" f 
+      where "id" = ${parentId}
 
-    if (nextParent) {
-      await this.updateSize(client, deltaSize, nextParent);
-    }
+      UNION ALL 
+
+      SELECT parent.id, parent."parentId" FROM "Folder" parent
+      JOIN folderSubTree f
+      ON f."parentId" = parent.id
+      )
+
+      UPDATE "Folder" target
+      SET "size" = target."size" + ${deltaSize}
+      FROM folderSubTree f
+      WHERE target.id = f.id`;
   }
 }
