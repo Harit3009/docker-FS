@@ -9,4 +9,21 @@ scrape_configs:
   - job_name: 'nest-app'
     metrics_path: '/metrics' # Assumes you expose @willsoto/nestjs-prometheus here
     static_configs:
-      - targets: ['host.docker.internal:3000']
+      - targets: ['host.docker.internal:4000']
+
+  - job_name: 'postgres_database'
+    static_configs:
+      # Scrapes the Postgres sidecar container on its default port
+      - targets: ['fs_postgres_exporter:9187']
+
+  - job_name: 'kafka_broker'
+    static_configs:
+      # Scrapes the Kafka sidecar container on its default port
+      - targets: ['fs_kafka_exporter:9308']
+
+  - job_name: 'opensearch_cluster'
+    # The plugin exposes metrics on this specific REST route
+    metrics_path: '/_prometheus/metrics'
+    static_configs:
+      # Scrapes the primary OpenSearch container directly on its native port
+      - targets: ['fs_opensearch:9200']

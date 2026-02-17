@@ -15,7 +15,6 @@ services:
     ports:
       - '5432:5432'
     volumes:
-      # Optional: Map this to SSD if you want DB persistence too
       - postgres_data:/var/lib/postgresql/data
     networks:
       - fs_network
@@ -54,7 +53,7 @@ services:
     image: provectuslabs/kafka-ui:latest
     container_name: fs_kafka_ui
     ports:
-      - '8080:8080'
+      - '8081:8080' # CHANGED: 8081 on host -> 8080 in container
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
@@ -69,6 +68,13 @@ services:
   opensearch:
     image: opensearchproject/opensearch:2.11.0
     container_name: fs_opensearch
+    entrypoint: >
+      bash -c "
+        if [ ! -d plugins/prometheus-exporter ]; then
+          ./bin/opensearch-plugin install --batch https://github.com/opensearch-project/opensearch-prometheus-exporter/releases/download/2.11.0.0/prometheus-exporter-2.11.0.0.zip;
+        fi;
+        exec ./opensearch-docker-entrypoint.sh opensearch
+      "
     environment:
       - discovery.type=single-node
       - bootstrap.memory_lock=true
@@ -104,7 +110,7 @@ services:
       - opensearch
 
   # ----------------------------------------------------------------
-  # 4. LOCALSTACK (S3/SQS) - FIXED PERSISTENCE
+  # 4. LOCALSTACK (S3/SQS)
   # ----------------------------------------------------------------
   localstack:
     image: localstack/localstack
@@ -115,21 +121,17 @@ services:
       - SERVICES=s3,sqs,sns
       - DEBUG=1
       - DOCKER_HOST=unix:///var/run/docker.sock
-      # Modern persistence config
       - PERSISTENCE=1
     volumes:
-      # Mount the Docker Socket (Required for LocalStack to spawn Lambdas)
       - '/var/run/docker.sock:/var/run/docker.sock'
-      # Init scripts
       - './localstack-init.sh:/etc/localstack/init/ready.d/init.sh'
-      # === FIX: BIND MOUNT TO SSD FOR PERSISTENCE ===
-      - /Volumes/T7/fs_project_data/localstack:/var/lib/localstack
+      - /Volumes/ssd/fs_project_data/localstack:/var/lib/localstack
     networks:
       - fs_network
-    user: '0:0' # Run as root to ensure it can write to the external SSD
+    user: '0:0'
 
   # ================================================================
-  # 5. OBSERVABILITY STACK (Data on SSD)
+  # 5. OBSERVABILITY STACK
   # ================================================================
 
   # A. JAEGER (Tracing)
@@ -137,57 +139,54 @@ services:
     image: jaegertracing/all-in-one:latest
     container_name: fs_jaeger
     ports:
-      - '16686:16686' # Web UI
-      - '4317:4317' # OTLP gRPC
-      - '4318:4318' # OTLP HTTP
+      - '16686:16686'
+      - '4317:4317'
+      - '4318:4318'
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     networks:
       - fs_network
 
-  # B. PROMETHEUS (Metrics - 10 Year Retention)
+  # B. PROMETHEUS (Metrics)
   prometheus:
     image: prom/prometheus:latest
     container_name: fs_prometheus
-    user: '0:0' # Root for SSD permissions
+    user: '0:0'
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=10y' # Keep for 10 years
-      - '--storage.tsdb.retention.size=0' # Unlimited size
+      - '--storage.tsdb.retention.time=10y'
+      - '--storage.tsdb.retention.size=0'
+      - '--web.enable-lifecycle'
     volumes:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
-      # PERSISTENCE TO SSD
-      - /Volumes/T7/fs_project_data/prometheus:/prometheus
+      - /Volumes/ssd/fs_project_data/prometheus:/prometheus
     ports:
       - '9090:9090'
     networks:
       - fs_network
 
-  # C. LOKI (Logs - Indefinite Retention)
+  # C. LOKI (Logs)
   loki:
     image: grafana/loki:latest
     container_name: fs_loki
     user: '0:0'
-    # Ensure your config file has retention limits REMOVED
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
       - ./observability/loki-config.yaml:/etc/loki/local-config.yaml
-      # PERSISTENCE TO SSD
-      - /Volumes/T7/fs_project_data/loki:/loki
+      - /Volumes/ssd/fs_project_data/loki:/loki
     ports:
       - '3100:3100'
     networks:
       - fs_network
 
-  # D. GRAFANA (Dashboard - Saved to SSD)
+  # D. GRAFANA (Dashboard)
   grafana:
     image: grafana/grafana:latest
     container_name: fs_grafana
     user: '0:0'
     volumes:
-      # PERSISTENCE TO SSD
-      - /Volumes/T7/fs_project_data/grafana:/var/lib/grafana
+      - /Volumes/ssd/fs_project_data/grafana:/var/lib/grafana
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
@@ -200,12 +199,51 @@ services:
       - loki
       - jaeger
 
+  # E. POSTGRES EXPORTER (Sidecar)
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: fs_postgres_exporter
+    environment:
+      DATA_SOURCE_NAME: 'postgresql://admin:password@fs_postgres:5432/file_system?sslmode=disable'
+    ports:
+      - '9187:9187'
+    networks:
+      - fs_network
+    depends_on:
+      - postgres
+
+  # F. KAFKA EXPORTER (Sidecar)
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: fs_kafka_exporter
+    command:
+      - '--kafka.server=kafka:29092'
+    ports:
+      - '9308:9308'
+    networks:
+      - fs_network
+    depends_on:
+      - kafka
+
+  # G. cAdvisor (Docker Container Metrics)
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.1
+    container_name: fs_cadvisor
+    privileged: true
+    ports:
+      - '8082:8080' # CHANGED: 8082 on host -> 8080 in container
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+    networks:
+      - fs_network
+
 networks:
   fs_network:
     driver: bridge
 
 volumes:
-  # Internal volumes for services we didn't map to SSD yet
   postgres_data:
   opensearch_data:
   kafka_data:
