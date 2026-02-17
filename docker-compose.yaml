@@ -3,7 +3,6 @@ version: '3.8'
 services:
   # ----------------------------------------------------------------
   # 1. POSTGRESQL (Relational Metadata Store)
-  # Connect URL: postgres://admin:password@localhost:5432/file_system
   # ----------------------------------------------------------------
   postgres:
     image: postgres:15-alpine
@@ -21,7 +20,7 @@ services:
       - fs_network
 
   # ----------------------------------------------------------------
-  # 3. KAFKA (KRaft Mode - No Zookeeper)
+  # 2. KAFKA (KRaft Mode)
   # ----------------------------------------------------------------
   kafka:
     image: confluentinc/cp-kafka:7.5.0
@@ -31,22 +30,15 @@ services:
     volumes:
       - kafka_data:/var/lib/kafka/data
     environment:
-      # --- KRAFT CONFIGURATION ---
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      # We need a fixed Cluster ID for KRaft to start. This is a random UUID.
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
-
-      # --- NETWORK ---
-      # Listeners: Controller (internal), Internal Docker, External Localhost
       KAFKA_LISTENERS: PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-
-      # --- SPEED OPTIMIZATIONS (From before) ---
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
@@ -56,36 +48,38 @@ services:
       KAFKA_HEAP_OPTS: '-Xmx512m -Xms512m'
     networks:
       - fs_network
-  # ----------------------------------------------------------------
-  # 3b. KAFKA UI (Web Interface)
-  # URL: http://localhost:8080
-  # ----------------------------------------------------------------
+
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: fs_kafka_ui
     ports:
-      - '8080:8080'
+      - '8081:8080' # CHANGED: 8081 on host -> 8080 in container
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
-      # KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
     networks:
       - fs_network
     depends_on:
       - kafka
 
   # ----------------------------------------------------------------
-  # 4. OPENSEARCH (Search Engine)
-  # Connect URL: https://localhost:9200 (User: admin / Pass: StrongPassword123!)
+  # 3. OPENSEARCH & DASHBOARDS
   # ----------------------------------------------------------------
   opensearch:
     image: opensearchproject/opensearch:2.11.0
     container_name: fs_opensearch
+    entrypoint: >
+      bash -c "
+        if [ ! -d plugins/prometheus-exporter ]; then
+          ./bin/opensearch-plugin install --batch https://github.com/opensearch-project/opensearch-prometheus-exporter/releases/download/2.11.0.0/prometheus-exporter-2.11.0.0.zip;
+        fi;
+        exec ./opensearch-docker-entrypoint.sh opensearch
+      "
     environment:
       - discovery.type=single-node
-      - bootstrap.memory_lock=true # Disable swapping for performance
-      - 'OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m' # Limit memory usage
-      - 'OPENSEARCH_INITIAL_ADMIN_PASSWORD=StrongPassword123' # Required by v2+
+      - bootstrap.memory_lock=true
+      - 'OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m'
+      - 'OPENSEARCH_INITIAL_ADMIN_PASSWORD=StrongPassword123!'
       - 'DISABLE_SECURITY_PLUGIN=true'
     ulimits:
       memlock:
@@ -102,8 +96,6 @@ services:
     networks:
       - fs_network
 
-  # 5. OPENSEARCH DASHBOARDS (GUI for viewing data)
-  # URL: http://localhost:5601
   opensearch-dashboards:
     image: opensearchproject/opensearch-dashboards:2.11.0
     container_name: fs_dashboards
@@ -111,15 +103,14 @@ services:
       - '5601:5601'
     environment:
       OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
-      DISABLE_SECURITY_DASHBOARDS_PLUGIN: 'true' # Disable security for local dev
+      DISABLE_SECURITY_DASHBOARDS_PLUGIN: 'true'
     networks:
       - fs_network
     depends_on:
       - opensearch
 
   # ----------------------------------------------------------------
-  # 6. LOCALSTACK (Mock S3)
-  # Endpoint: http://localhost:4566
+  # 4. LOCALSTACK (S3/SQS)
   # ----------------------------------------------------------------
   localstack:
     image: localstack/localstack
@@ -132,9 +123,119 @@ services:
       - DOCKER_HOST=unix:///var/run/docker.sock
       - PERSISTENCE=1
     volumes:
-      - localstack_data:/var/lib/localstack
       - '/var/run/docker.sock:/var/run/docker.sock'
       - './localstack-init.sh:/etc/localstack/init/ready.d/init.sh'
+      - /Volumes/ssd/fs_project_data/localstack:/var/lib/localstack
+    networks:
+      - fs_network
+    user: '0:0'
+
+  # ================================================================
+  # 5. OBSERVABILITY STACK
+  # ================================================================
+
+  # A. JAEGER (Tracing)
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: fs_jaeger
+    ports:
+      - '16686:16686'
+      - '4317:4317'
+      - '4318:4318'
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - fs_network
+
+  # B. PROMETHEUS (Metrics)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: fs_prometheus
+    user: '0:0'
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=10y'
+      - '--storage.tsdb.retention.size=0'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+      - /Volumes/ssd/fs_project_data/prometheus:/prometheus
+    ports:
+      - '9090:9090'
+    networks:
+      - fs_network
+
+  # C. LOKI (Logs)
+  loki:
+    image: grafana/loki:latest
+    container_name: fs_loki
+    user: '0:0'
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./observability/loki-config.yaml:/etc/loki/local-config.yaml
+      - /Volumes/ssd/fs_project_data/loki:/loki
+    ports:
+      - '3100:3100'
+    networks:
+      - fs_network
+
+  # D. GRAFANA (Dashboard)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: fs_grafana
+    user: '0:0'
+    volumes:
+      - /Volumes/ssd/fs_project_data/grafana:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    ports:
+      - '3001:3000'
+    networks:
+      - fs_network
+    depends_on:
+      - prometheus
+      - loki
+      - jaeger
+
+  # E. POSTGRES EXPORTER (Sidecar)
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: fs_postgres_exporter
+    environment:
+      DATA_SOURCE_NAME: 'postgresql://admin:password@fs_postgres:5432/file_system?sslmode=disable'
+    ports:
+      - '9187:9187'
+    networks:
+      - fs_network
+    depends_on:
+      - postgres
+
+  # F. KAFKA EXPORTER (Sidecar)
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: fs_kafka_exporter
+    command:
+      - '--kafka.server=kafka:29092'
+    ports:
+      - '9308:9308'
+    networks:
+      - fs_network
+    depends_on:
+      - kafka
+
+  # G. cAdvisor (Docker Container Metrics)
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.1
+    container_name: fs_cadvisor
+    privileged: true
+    ports:
+      - '8082:8080' # CHANGED: 8082 on host -> 8080 in container
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
     networks:
       - fs_network
 
@@ -145,5 +246,4 @@ networks:
 volumes:
   postgres_data:
   opensearch_data:
-  localstack_data:
   kafka_data:
