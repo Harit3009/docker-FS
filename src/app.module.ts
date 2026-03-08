@@ -14,6 +14,7 @@ import {
   makeCounterProvider,
 } from '@willsoto/nestjs-prometheus';
 import { DocumentMetricService } from './document-metric/document-metric.service';
+import { UserGroupsModule } from './user-groups/user-groups.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { DocumentMetricService } from './document-metric/document-metric.service
     EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
     PrometheusModule.register(),
+    UserGroupsModule,
   ],
   controllers: [AppController],
   providers: [

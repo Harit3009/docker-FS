@@ -13,7 +13,7 @@ import { S3Service } from 'src/s3-module/s3-service.service';
 import { S3FileMetaData } from 'types/file-metadata';
 import { Prisma } from '@prisma/client';
 import { KafkaService } from '../kafka/kafka.service';
-import { KAFKA_TOPIC_NAMES } from './../../../constants';
+import { KAFKA_CONSUMER_NAMES, KAFKA_TOPIC_NAMES } from './../../../constants';
 import { FileUploadMessage } from 'types/kafka-messages';
 
 @Injectable()
@@ -32,7 +32,7 @@ export class KafkaCreateFileConsumerService
     private kafkaOrigin: KafkaService,
   ) {
     this.dbCreateConsumer = this.kafkaOrigin.kafka.consumer({
-      groupId: 'db-record-creator',
+      groupId: KAFKA_CONSUMER_NAMES.MAKE_DB_RECORD_CONSUMER,
     });
 
     this.sqsS3 = new SQSClient({

@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Client } from '@opensearch-project/opensearch';
 import { ConfigService } from '@nestjs/config';
 import { OpensearchIndexableDocument } from 'types/opensearch-index';
+import { BulkByScrollTaskStatus } from '@opensearch-project/opensearch/api/_types/_common';
 
 @Injectable()
 export class OpensearchService implements OnModuleInit {
@@ -74,6 +75,67 @@ export class OpensearchService implements OnModuleInit {
     } catch (error) {
       this.logger.error(`Failed to query documents: ${error.message}`, error);
       throw error;
+    }
+  }
+
+  async markDocumentAsDeletedByS3Key(filePathPrefix: string) {
+    const queryId = await this.client.updateByQuery({
+      index: this.INDEX_NAME,
+      conflicts: 'proceed',
+      wait_for_completion: false,
+      body: {
+        query: {
+          bool: {
+            filter: [
+              {
+                prefix: {
+                  'fileSystemPath.raw': filePathPrefix,
+                },
+              },
+              {
+                match: {
+                  isDeleted: false,
+                },
+              },
+            ],
+          },
+        },
+        script: {
+          source: 'ctx._source.isDeleted = true;',
+          lang: 'painless',
+        },
+      },
+    });
+  }
+
+  async monitorAndThrottleUpdate(taskId: string) {
+    // 1. Fetch the current status of the task
+    const response = await this.client.tasks.get({ task_id: taskId });
+    const taskData = response.body.task;
+    const status = taskData.status as BulkByScrollTaskStatus;
+
+    // 2. Extract metrics
+    const totalDocs = status.total;
+    const processedDocs = status.updated + status.created + status.deleted;
+
+    // Convert nanoseconds to seconds for standard speed calculation
+    const runningTimeSec = taskData.running_time_in_nanos / 1_000_000_000;
+
+    // 3. Calculate actual documents processed per second
+    const currentSpeed = processedDocs / runningTimeSec;
+
+    console.log(`Progress: ${processedDocs}/${totalDocs}`);
+    console.log(`Current Speed: ${currentSpeed.toFixed(2)} docs/sec`);
+
+    // 4. Evaluate and Throttle
+    // If processing over 100 docs/sec, slow it down to save JVM memory
+    if (currentSpeed > 100) {
+      console.log('Speed threshold exceeded. Throttling task...');
+
+      await this.client.updateByQueryRethrottle({
+        task_id: taskId,
+        requests_per_second: 50, // Force OpenSearch to slow down to 50 docs/sec
+      });
     }
   }
 

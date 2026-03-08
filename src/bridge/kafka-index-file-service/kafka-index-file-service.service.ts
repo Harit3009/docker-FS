@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { KafkaService } from '../kafka/kafka.service';
 import { Consumer } from 'kafkajs';
-import { KAFKA_TOPIC_NAMES } from '../../../constants';
+import { KAFKA_CONSUMER_NAMES, KAFKA_TOPIC_NAMES } from '../../../constants';
 
 import { S3Service } from 'src/s3-module/s3-service.service';
 import { FileUploadMessage } from 'types/kafka-messages';
@@ -23,7 +23,7 @@ export class KafkaIndexFileServiceService {
     private embeddingService: EmbeddingService,
   ) {
     this.consumer = this.kafkaOrigin.kafka.consumer({
-      groupId: 'file-indexer-group',
+      groupId: KAFKA_CONSUMER_NAMES.VECTOR_INDEXING_CONSUMER,
     });
 
     if (this.kafkaOrigin.isKafkaConnected) {
@@ -72,7 +72,7 @@ export class KafkaIndexFileServiceService {
 
         if (ContentType === 'application/pdf') {
           this.logger.log(
-            `Indexing PDF file: ${fileMeta.fileid} from S3 Key: ${parsedMessage.s3Key}`,
+            `Indexing PDF file: ${fileMeta.filesystempath} from S3 Key: ${parsedMessage.s3Key}`,
           );
           const chunkTextStream = await this.pdfParser.parseS3PdfAsTextStream(
             parsedMessage.s3Key,

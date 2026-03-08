@@ -3,7 +3,7 @@ import { Folder } from '@prisma/client';
 import { Consumer } from 'kafkajs';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { KafkaService } from '../kafka/kafka.service';
-import { KAFKA_TOPIC_NAMES } from '../../../constants';
+import { KAFKA_CONSUMER_NAMES, KAFKA_TOPIC_NAMES } from '../../../constants';
 
 @Injectable()
 export class KafkaDeleteConsumerService {
@@ -15,7 +15,7 @@ export class KafkaDeleteConsumerService {
     private prisma: PrismaService,
   ) {
     this.markChildrenForDeleteConsumer = this.kafkaOrigin.kafka.consumer({
-      groupId: 'marking for delete',
+      groupId: KAFKA_CONSUMER_NAMES.MARK_CHILDREN_FOR_DELETE_CONSUMER,
     });
 
     if (this.kafkaOrigin.isKafkaConnected) {

@@ -31,7 +31,7 @@ export class EmbeddingService implements OnModuleInit {
     taskType: TaskType = TaskType.RETRIEVAL_DOCUMENT,
   ): Promise<number[][]> {
     const response = await this.genAIClient.models.embedContent({
-      model: 'text-embedding-004',
+      model: 'gemini-embedding-001',
       contents: texts,
       config: {
         outputDimensionality: 768,
