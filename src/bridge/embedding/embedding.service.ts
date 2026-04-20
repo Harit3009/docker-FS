@@ -1,9 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { GoogleGenAI } from '@google/genai';
 import { ConfigService } from '@nestjs/config';
-import { TaskType } from '@google/generative-ai';
 import { OpensearchIndexableDocument } from 'types/opensearch-index';
-import Groq from 'groq-sdk';
 
 export interface ChatResponse {
   answer: string;
@@ -12,34 +9,17 @@ export interface ChatResponse {
 
 @Injectable()
 export class EmbeddingService implements OnModuleInit {
-  private genAIClient: GoogleGenAI;
-  private groq: Groq;
   private readonly logger = new Logger(EmbeddingService.name);
 
-  constructor(private configService: ConfigService) {
-    const apiKey = this.configService.get<string>('GEMINI_API_KEY');
-    this.genAIClient = new GoogleGenAI({ apiKey });
-    this.groq = new Groq({
-      apiKey: this.configService.get<string>('GROQ_API_KEY'),
-    });
-  }
+  constructor(private configService: ConfigService) {}
 
   async onModuleInit() {}
 
   async generateEmbeddings(
     texts: string[],
-    taskType: TaskType = TaskType.RETRIEVAL_DOCUMENT,
+    taskType: 'QUERY' | 'DOCUMENT' = 'DOCUMENT',
   ): Promise<number[][]> {
-    const response = await this.genAIClient.models.embedContent({
-      model: 'gemini-embedding-001',
-      contents: texts,
-      config: {
-        outputDimensionality: 768,
-        taskType: taskType,
-      },
-    });
-
-    return response.embeddings.map((embedding) => embedding.values);
+    return [];
   }
 
   async chatAgent(
@@ -70,34 +50,9 @@ export class EmbeddingService implements OnModuleInit {
     `;
 
     try {
-      const completion = await this.groq.chat.completions.create({
-        messages: [
-          { role: 'system', content: systemPrompt },
-          {
-            role: 'user',
-            content: `Context:\n${contextString}\n\nUser Question: "${query}"`,
-          },
-        ],
-        model: 'llama-3.3-70b-versatile', // Smartest/Fastest balance on Groq
-        temperature: 0, // 0 is best for factual RAG
-        response_format: { type: 'json_object' }, // Enforces JSON structure
-      });
-
-      // 3. Parse and Map
-      const rawContent = completion.choices[0]?.message?.content || '{}';
-      const parsed = JSON.parse(rawContent);
-
-      // Map IDs back to S3 Keys safely
-      const sources = (parsed.referencedDocumentIds || [])
-        .map((id: string) => {
-          const doc = contextDocs.find((d) => d.id === id);
-          return doc ? { id: doc.id, path: doc.fileSystemPath } : null;
-        })
-        .filter((item) => item !== null);
-
       return {
-        answer: parsed.answer,
-        sources: sources,
+        answer: 'This is a placeholder answer.',
+        sources: contextDocs.map((doc) => ({ id: doc.id, s3Key: doc.s3Key })),
       };
     } catch (error) {
       this.logger.error('Groq API Failed', error);
