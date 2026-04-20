@@ -51,8 +51,8 @@ export class PdfParserService {
     const pdftotext = spawn('pdftotext', ['-layout', path, '-']);
 
     const chunker = new StreamingChunker({
-      chunkSize: 1000,
-      chunkOverlap: 200,
+      chunkSize: 2500,
+      chunkOverlap: 400,
     });
 
     pdftotext.stdout.pipe(chunker);

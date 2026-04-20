@@ -4,14 +4,20 @@ echo "Initializing LocalStack resources..."
 # 1. Create the Bucket
 awslocal s3 mb s3://local-file-system
 
-# 2. Create the Queue (DLQ first is best practice, but skipping for simplicity)
+
+echo "Initializing LocalStack resources... 2"
+
+# 2. Create the Queue
 awslocal sqs create-queue --queue-name file-upload-queue
 
-# 3. Get Queue ARN (Needed for S3 permission)
+echo "Initializing LocalStack resources... 3"
+
+# 3. Get Queue ARN
 QUEUE_ARN=$(awslocal sqs get-queue-attributes --queue-url http://localhost:4566/000000000000/file-upload-queue --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
 
+echo "Initializing LocalStack resources... 4"
+
 # 4. Configure S3 to Notify SQS
-# We create a JSON config on the fly
 cat <<EOF > /tmp/s3-notification.json
 {
   "QueueConfigurations": [
@@ -22,6 +28,8 @@ cat <<EOF > /tmp/s3-notification.json
   ]
 }
 EOF
+
+echo "Initializing LocalStack resources... 5"
 
 awslocal s3api put-bucket-notification-configuration --bucket local-file-system --notification-configuration file:///tmp/s3-notification.json
 awslocal s3api put-bucket-cors --bucket local-file-system --cors-configuration '{
@@ -35,4 +43,26 @@ awslocal s3api put-bucket-cors --bucket local-file-system --cors-configuration '
   ]
 }'
 
-echo "LocalStack resources created!"
+echo "Base LocalStack resources created!"
+
+# ---------------------------------------------------------
+# NEW LOGIC: Deploy Lambda and attach to SQS
+# ---------------------------------------------------------
+
+echo "Deploying Lambda function..."
+awslocal lambda create-function \
+  --function-name s3-event-handler \
+  --runtime nodejs20.x \
+  --role arn:aws:iam::000000000000:role/dummy-role \
+  --handler index.handler \
+  --memory-size 512 \
+  --timeout 900 \
+  --zip-file fileb:///opt/lambda-build/function.zip # <-- Back to the zip file
+
+echo "Mapping SQS queue to trigger Lambda..."
+awslocal lambda create-event-source-mapping \
+  --function-name s3-event-handler \
+  --batch-size 10 \
+  --event-source-arn "$QUEUE_ARN"
+
+echo "Initialization Complete!"

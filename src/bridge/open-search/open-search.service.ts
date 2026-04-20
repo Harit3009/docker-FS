@@ -2,12 +2,12 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Client } from '@opensearch-project/opensearch';
 import { ConfigService } from '@nestjs/config';
 import { OpensearchIndexableDocument } from 'types/opensearch-index';
-import { BulkByScrollTaskStatus } from '@opensearch-project/opensearch/api/_types/_common';
+import { Common } from '@opensearch-project/opensearch/api/_types/index.js';
 
 @Injectable()
 export class OpensearchService implements OnModuleInit {
   private readonly logger = new Logger(OpensearchService.name);
-  private readonly INDEX_NAME = 'user-files-v1-768'; // Versioning indexes is good practice
+  private readonly INDEX_NAME = 'userfile-local-1536-v1'; // Versioning indexes is good practice
   private client: Client;
 
   constructor(private readonly configService: ConfigService) {
@@ -45,9 +45,9 @@ export class OpensearchService implements OnModuleInit {
         },
       });
       this.logger.log(`Document "${document.id}" indexed successfully.`);
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(
-        `Failed to index document "${document.id}": ${error.message}`,
+        `Failed to index document "${document.id}": ${error?.message}`,
         error,
       );
       throw error;
@@ -72,14 +72,14 @@ export class OpensearchService implements OnModuleInit {
       });
 
       return body.hits.hits.map((hit) => hit._source);
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Failed to query documents: ${error.message}`, error);
       throw error;
     }
   }
 
   async markDocumentAsDeletedByS3Key(filePathPrefix: string) {
-    const queryId = await this.client.updateByQuery({
+    const response = await this.client.updateByQuery({
       index: this.INDEX_NAME,
       conflicts: 'proceed',
       wait_for_completion: false,
@@ -106,13 +106,44 @@ export class OpensearchService implements OnModuleInit {
         },
       },
     });
+    const { task: taskId } = response.body as { task: Common.TaskId };
+    this.logger.log(
+      `Initiated mark-as-deleted for documents with prefix "${filePathPrefix}". Task ID: ${taskId}`,
+    );
+    await this.monitorAndThrottleUpdate(taskId);
   }
 
   async monitorAndThrottleUpdate(taskId: string) {
+    const checkInterval = 5000; // Check every 5 seconds
+    let errorCount = 0;
+    const interval = setInterval(async () => {
+      try {
+        const isProcessed = await this.monitorAndThrottleUpdateOnce(taskId);
+        if (isProcessed) {
+          this.logger.log(`Task ${taskId} completed. Clearing interval.`);
+          clearInterval(interval);
+        }
+      } catch (error: any) {
+        errorCount++;
+        this.logger.error(
+          `Error monitoring task ${taskId}: ${error.message}`,
+          error,
+        );
+        if (errorCount >= 5) {
+          this.logger.error(
+            `Exceeded maximum error threshold while monitoring task ${taskId}. Clearing interval to prevent infinite errors.`,
+          );
+          clearInterval(interval);
+        }
+      }
+    }, checkInterval);
+  }
+
+  async monitorAndThrottleUpdateOnce(taskId: string) {
     // 1. Fetch the current status of the task
     const response = await this.client.tasks.get({ task_id: taskId });
     const taskData = response.body.task;
-    const status = taskData.status as BulkByScrollTaskStatus;
+    const status = taskData?.status as Common.BulkByScrollTaskStatus; // Contains total, updated, created, deleted counts and running_time_in_nanos
 
     // 2. Extract metrics
     const totalDocs = status.total;
@@ -124,19 +155,21 @@ export class OpensearchService implements OnModuleInit {
     // 3. Calculate actual documents processed per second
     const currentSpeed = processedDocs / runningTimeSec;
 
-    console.log(`Progress: ${processedDocs}/${totalDocs}`);
-    console.log(`Current Speed: ${currentSpeed.toFixed(2)} docs/sec`);
+    this.logger.log(`Progress: ${processedDocs}/${totalDocs}`);
+    this.logger.log(`Current Speed: ${currentSpeed.toFixed(2)} docs/sec`);
 
     // 4. Evaluate and Throttle
     // If processing over 100 docs/sec, slow it down to save JVM memory
     if (currentSpeed > 100) {
-      console.log('Speed threshold exceeded. Throttling task...');
+      this.logger.log('Speed threshold exceeded. Throttling task...');
 
       await this.client.updateByQueryRethrottle({
         task_id: taskId,
         requests_per_second: 50, // Force OpenSearch to slow down to 50 docs/sec
       });
     }
+
+    return totalDocs === processedDocs; // Return true if task is complete
   }
 
   private async createIndexIfNotExists() {
@@ -154,7 +187,7 @@ export class OpensearchService implements OnModuleInit {
       }
 
       this.logger.log(
-        `Creating index "${this.INDEX_NAME}" with 768-dim Vector mappings...`,
+        `Creating index "${this.INDEX_NAME}" with 1536 Vector mappings...`,
       );
 
       // 2. Create Index with Settings & Mappings
@@ -180,13 +213,13 @@ export class OpensearchService implements OnModuleInit {
               },
               embedding: {
                 type: 'knn_vector',
-                dimension: 768, // <--- UPDATED: Correct size for text-embedding-004
+                dimension: 1536,
                 method: {
                   name: 'hnsw',
                   engine: 'faiss',
-                  space_type: 'innerproduct', // <--- UPDATED: Best for Gemini vectors
+                  space_type: 'innerproduct', // <--- UPDATED: Best for Qwen-2 1.5B vectors
                   parameters: {
-                    ef_construction: 128,
+                    ef_construction: 256,
                     m: 24,
                   },
                 },
@@ -207,13 +240,16 @@ export class OpensearchService implements OnModuleInit {
               createdAt: { type: 'date' },
               updatedAt: { type: 'date' },
               isDeleted: { type: 'boolean' },
+              groupIds: {
+                type: 'keyword',
+              },
             },
           },
         },
       });
 
       this.logger.log(`Index "${this.INDEX_NAME}" created successfully.`);
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(
         `Failed to initialize OpenSearch index: ${error.message}`,
         error,

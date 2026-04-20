@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   # ----------------------------------------------------------------
-  # 1. POSTGRESQL (Relational Metadata Store)
+  # 1. POSTGRESQL
   # ----------------------------------------------------------------
   postgres:
     image: postgres:15-alpine
@@ -12,6 +12,19 @@ services:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password
       POSTGRES_DB: file_system
+    # OPTIMIZATION: Buffer writes in RAM, flush to disk every 15 mins instead of 5
+    command: >
+      postgres -c 'shared_buffers=1GB' 
+               -c 'checkpoint_timeout=15min' 
+               -c 'checkpoint_completion_target=0.9' 
+               -c 'wal_writer_delay=200ms'
+    logging:
+      driver: 'json-file'
+      options:
+        mode: 'non-blocking'
+        max-buffer-size: '4m'
+        max-size: '10m'
+        max-file: '3'
     ports:
       - '5432:5432'
     volumes:
@@ -42,10 +55,20 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_LOG_FLUSH_INTERVAL_MESSAGES: 10000
-      KAFKA_LOG_FLUSH_INTERVAL_MS: 1000
+      # OPTIMIZATION: Disk sync every 60s instead of 1s. Background fetches slowed down.
+      KAFKA_LOG_FLUSH_INTERVAL_MESSAGES: 9223372036854775807
+      KAFKA_LOG_FLUSH_INTERVAL_MS: 60000
+      KAFKA_FETCH_MAX_WAIT_MS: 5000
+      KAFKA_METADATA_MAX_IDLE_INTERVAL_MS: 5000
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_HEAP_OPTS: '-Xmx512m -Xms512m'
+      KAFKA_HEAP_OPTS: '-Xmx4g -Xms4g'
+    logging:
+      driver: 'json-file'
+      options:
+        mode: 'non-blocking'
+        max-buffer-size: '4m'
+        max-size: '10m'
+        max-file: '3'
     networks:
       - fs_network
 
@@ -53,7 +76,7 @@ services:
     image: provectuslabs/kafka-ui:latest
     container_name: fs_kafka_ui
     ports:
-      - '8081:8080' # CHANGED: 8081 on host -> 8080 in container
+      - '8081:8080'
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
@@ -78,9 +101,11 @@ services:
     environment:
       - discovery.type=single-node
       - bootstrap.memory_lock=true
-      - 'OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m'
+      - 'OPENSEARCH_JAVA_OPTS=-Xms8g -Xmx8g'
       - 'OPENSEARCH_INITIAL_ADMIN_PASSWORD=StrongPassword123!'
       - 'DISABLE_SECURITY_PLUGIN=true'
+      # OPTIMIZATION: Batch index writes in memory
+      - 'indices.memory.index_buffer_size=30%'
     ulimits:
       memlock:
         soft: -1
@@ -88,6 +113,13 @@ services:
       nofile:
         soft: 65536
         hard: 65536
+    logging:
+      driver: 'json-file'
+      options:
+        mode: 'non-blocking'
+        max-buffer-size: '4m'
+        max-size: '10m'
+        max-file: '3'
     ports:
       - '9200:9200'
       - '9600:9600'
@@ -110,7 +142,7 @@ services:
       - opensearch
 
   # ----------------------------------------------------------------
-  # 4. LOCALSTACK (S3/SQS)
+  # 4. LOCALSTACK
   # ----------------------------------------------------------------
   localstack:
     image: localstack/localstack
@@ -118,23 +150,33 @@ services:
     ports:
       - '4566:4566'
     environment:
-      - SERVICES=s3,sqs,sns
-      - DEBUG=1
+      - SERVICES=s3,sqs,sns,lambda,logs
+      - DEBUG=0 # OPTIMIZATION: Reduced debug noise to cut down log writes
       - DOCKER_HOST=unix:///var/run/docker.sock
       - PERSISTENCE=1
+      - LAMBDA_DOCKER_NETWORK=fs_network
+      - GATEWAY_LISTEN=0.0.0.0:4566
+      - EXTRA_CORS_ALLOWED_ORIGINS=*
+    logging:
+      driver: 'json-file'
+      options:
+        mode: 'non-blocking'
+        max-buffer-size: '4m'
+        max-size: '10m'
+        max-file: '3'
     volumes:
       - '/var/run/docker.sock:/var/run/docker.sock'
       - './localstack-init.sh:/etc/localstack/init/ready.d/init.sh'
-      - /Volumes/ssd/fs_project_data/localstack:/var/lib/localstack
+      - '/Volumes/ssd/fs_project_data/localstack:/var/lib/localstack'
+      - './lambda-dist:/opt/lambda-build'
     networks:
       - fs_network
     user: '0:0'
 
   # ================================================================
-  # 5. OBSERVABILITY STACK
+  # 5. OBSERVABILITY & EXPORTERS
   # ================================================================
 
-  # A. JAEGER (Tracing)
   jaeger:
     image: jaegertracing/all-in-one:latest
     container_name: fs_jaeger
@@ -147,7 +189,6 @@ services:
     networks:
       - fs_network
 
-  # B. PROMETHEUS (Metrics)
   prometheus:
     image: prom/prometheus:latest
     container_name: fs_prometheus
@@ -158,6 +199,17 @@ services:
       - '--storage.tsdb.retention.time=10y'
       - '--storage.tsdb.retention.size=0'
       - '--web.enable-lifecycle'
+      # OPTIMIZATION: Keep blocks in memory for 2 hours before writing to SSD
+      - '--storage.tsdb.min-block-duration=2h'
+      - '--storage.tsdb.max-block-duration=2h'
+      - '--storage.tsdb.wal-compression'
+    logging:
+      driver: 'json-file'
+      options:
+        mode: 'non-blocking'
+        max-buffer-size: '4m'
+        max-size: '10m'
+        max-file: '3'
     volumes:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
       - /Volumes/ssd/fs_project_data/prometheus:/prometheus
@@ -166,7 +218,6 @@ services:
     networks:
       - fs_network
 
-  # C. LOKI (Logs)
   loki:
     image: grafana/loki:latest
     container_name: fs_loki
@@ -180,7 +231,6 @@ services:
     networks:
       - fs_network
 
-  # D. GRAFANA (Dashboard)
   grafana:
     image: grafana/grafana:latest
     container_name: fs_grafana
@@ -199,7 +249,7 @@ services:
       - loki
       - jaeger
 
-  # E. POSTGRES EXPORTER (Sidecar)
+  # ORIGINAL SIDE-CAR EXPORTER 1: POSTGRES
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:latest
     container_name: fs_postgres_exporter
@@ -212,7 +262,7 @@ services:
     depends_on:
       - postgres
 
-  # F. KAFKA EXPORTER (Sidecar)
+  # ORIGINAL SIDE-CAR EXPORTER 2: KAFKA
   kafka-exporter:
     image: danielqsj/kafka-exporter:latest
     container_name: fs_kafka_exporter
@@ -225,13 +275,17 @@ services:
     depends_on:
       - kafka
 
-  # G. cAdvisor (Docker Container Metrics)
+  # ORIGINAL GENERAL EXPORTER: cAdvisor
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.47.1
     container_name: fs_cadvisor
     privileged: true
+    # OPTIMIZATION: Slow down polling to once every 15s to stop constant SSD touching
+    command:
+      - '--housekeeping_interval=15s'
+      - '--global_housekeeping_interval=1m'
     ports:
-      - '8082:8080' # CHANGED: 8082 on host -> 8080 in container
+      - '8082:8080'
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:rw
@@ -241,6 +295,7 @@ services:
 
 networks:
   fs_network:
+    name: fs_network
     driver: bridge
 
 volumes:

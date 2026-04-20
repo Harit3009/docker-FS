@@ -130,18 +130,20 @@ export class KafkaCreateFileConsumerService
           this.logger.log(
             `File record created successfully for s3Key: ${message.s3Key}, fileMeta: ${Metadata}`,
           );
-        } catch (error) {
+        } catch (error: any) {
           this.logger.error(error);
           this.kafkaOrigin.producer.send({
             topic: 'error-while-file-upload-processing',
-            messages: [{ value: JSON.stringify({ stack: error.stack }) }],
+            messages: [
+              { value: JSON.stringify({ stack: error.stack, error }) },
+            ],
           });
         }
       },
     });
 
     this.isPollingS3EventSqs = true;
-    this.pollSqs();
+    // this.pollSqs();
   }
 
   async onModuleDestroy() {
@@ -149,25 +151,25 @@ export class KafkaCreateFileConsumerService
     await this.dbCreateConsumer.disconnect();
   }
 
-  private async pollSqs() {
-    this.logger.log('poll sqs called>>>>>>>>>>>>>>>>>>>>>>>>>');
-    while (this.isPollingS3EventSqs) {
-      const command: ReceiveMessageCommandInput = {
-        QueueUrl: process.env.AWS_S3_EVENT_QUEUE_URL,
-        MaxNumberOfMessages: 10,
-        WaitTimeSeconds: 2,
-      };
+  // private async pollSqs() {
+  //   this.logger.log('poll sqs called>>>>>>>>>>>>>>>>>>>>>>>>>');
+  //   while (this.isPollingS3EventSqs) {
+  //     const command: ReceiveMessageCommandInput = {
+  //       QueueUrl: process.env.AWS_S3_EVENT_QUEUE_URL,
+  //       MaxNumberOfMessages: 10,
+  //       WaitTimeSeconds: 2,
+  //     };
 
-      const { Messages } = await this.sqsS3.send(
-        new ReceiveMessageCommand(command),
-      );
+  //     const { Messages } = await this.sqsS3.send(
+  //       new ReceiveMessageCommand(command),
+  //     );
 
-      if (Messages?.length)
-        for (let i = 0; i < Messages.length; i++) {
-          await this.processMessage(Messages[i]);
-        }
-    }
-  }
+  //     if (Messages?.length)
+  //       for (let i = 0; i < Messages.length; i++) {
+  //         await this.processMessage(Messages[i]);
+  //       }
+  //   }
+  // }
 
   private async processMessage(sqsMessage: Message) {
     const body = JSON.parse(sqsMessage.Body);

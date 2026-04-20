@@ -29,6 +29,7 @@ model User {
   createdFolder Folder[] @relation("userCreatedRelation")
   createdFiles File [] @relation("userCreatedRelationFile")
   ownedGroups Group[] @relation("groupOwner")
+  inviteCreated GroupMember [] @relation("groupMemmberUserIdAsInvitedBy")
 }
 
 model Folder {
@@ -88,6 +89,10 @@ model GroupMember {
   user User @relation("groupMemberUserIdRelation",fields: [userId], references: [id],onDelete: Cascade)
   group Group @relation("groupMemberGroupIdRelation", fields: [groupId], references: [id],onDelete: Cascade)
   role GROUP_ROLE
+  status GROUP_MEMBER_STATUS
+  status_remark String
+  invitedById String
+  invitedBy User @relation("groupMemmberUserIdAsInvitedBy",fields: [invitedById], references: [id])
   @@id([userId,groupId])
   @@index([groupId])
 }
@@ -116,10 +121,19 @@ enum GROUP_ROLE {
   MEMBER
   ADMIN
   OWNER
-  INVITED
 }
 
 enum RECORD_PERMISSION {
   READ 
   WRITE
+}
+
+enum GROUP_MEMBER_STATUS {
+  INVITED
+  BLOCKED_BY_INVITEE
+  BLOCKED_BY_MEMBER
+  BLOCKED_BY_ADMIN
+  BLOCKED_BY_OWNER
+  ACCEPTED
+  REJECTED
 }
