@@ -10,6 +10,8 @@ import { KafkaIndexFileServiceService } from './kafka-index-file-service/kafka-i
 import { OpensearchService } from './open-search/open-search.service';
 import { PdfParserService } from './pdf-parser/pdf-parser.service';
 import { EmbeddingService } from './embedding/embedding.service';
+import { HttpModule } from '@nestjs/axios';
+import { AiRetrievalService } from './ai-retrieval/ai-retrieval.service';
 
 @Module({
   providers: [
@@ -22,14 +24,16 @@ import { EmbeddingService } from './embedding/embedding.service';
     OpensearchService,
     PdfParserService,
     EmbeddingService,
+    AiRetrievalService,
   ],
   exports: [
     KafkaCreateFileConsumerService,
     KafkaDeleteConsumerService,
     OpensearchService,
     EmbeddingService,
+    AiRetrievalService,
   ],
-  imports: [PrismaModule, S3ModuleModule],
+  imports: [PrismaModule, S3ModuleModule, HttpModule],
 })
 export class BridgeModule {
   constructor() {}

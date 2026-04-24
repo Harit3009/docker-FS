@@ -54,24 +54,64 @@ export class OpensearchService implements OnModuleInit {
     }
   }
 
-  async queryDocuments(embeddings: number[], topK: number = 10) {
+  async queryDocuments(
+    embeddings: number[],
+    searchText: string,
+    userId: string,
+    stripEmbeddings = true,
+    topK: number = 10,
+  ) {
     try {
       const { body } = await this.client.search({
         index: this.INDEX_NAME,
         size: topK,
         body: {
           query: {
-            knn: {
-              embedding: {
-                vector: embeddings,
-                k: topK,
-              },
+            hybrid: {
+              queries: [
+                // 1. The Vector Search (Semantic)
+                {
+                  knn: {
+                    embedding: {
+                      vector: embeddings,
+                      k: topK,
+                      // CRITICAL ARCHITECTURE WIN: Put the filter INSIDE the knn block.
+                      // This forces Faiss to pre-filter the graph, guaranteeing it returns
+                      // exactly 'topK' results that belong to the user.
+                      filter: {
+                        bool: {
+                          must: [
+                            { term: { createdById: userId } },
+                            { term: { isDeleted: false } },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                },
+                // 2. The Text Search (Lexical / Exact Match)
+                {
+                  bool: {
+                    must: {
+                      match: { text: searchText },
+                    },
+                    filter: [
+                      { term: { createdById: userId } },
+                      { term: { isDeleted: false } },
+                    ],
+                  },
+                },
+              ],
             },
           },
         },
       });
 
-      return body.hits.hits.map((hit) => hit._source);
+      return body.hits.hits.map((hit) => {
+        if (!stripEmbeddings) return hit._source;
+        const { embedding, ...rest } = hit._source;
+        return rest;
+      });
     } catch (error: any) {
       this.logger.error(`Failed to query documents: ${error.message}`, error);
       throw error;

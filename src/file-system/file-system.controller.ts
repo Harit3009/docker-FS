@@ -38,8 +38,8 @@ import { plainToInstance } from 'class-transformer';
 import { KafkaDeleteConsumerService } from 'src/bridge/kafka-delete-consumer/kafka-delete-consumer.service';
 import { OpensearchService } from 'src/bridge/open-search/open-search.service';
 import { EmbeddingService } from 'src/bridge/embedding/embedding.service';
-import { TaskType } from '@google/generative-ai';
 import { OpensearchIndexableDocument } from 'types/opensearch-index';
+import { AiRetrievalService } from 'src/bridge/ai-retrieval/ai-retrieval.service';
 
 @UseGuards(AuthGuard([PASSPORT_STRATEGIES.INCOMING_JWT_VERIFICATION]))
 @Controller('file-system')
@@ -49,8 +49,7 @@ export class FileSystemController {
     private s3Service: S3Service,
     private prisma: PrismaService,
     private kafkaDelPublisher: KafkaDeleteConsumerService,
-    private oss: OpensearchService,
-    private embeddingService: EmbeddingService,
+    private readonly chatService: AiRetrievalService,
   ) {}
 
   @Get('list-directories-by-parent')
@@ -463,36 +462,10 @@ export class FileSystemController {
     return { s3Key, UploadId };
   }
 
-  @Post('search-docs')
-  async searchDocs(@Body() body: SearchDocumentsDto, @ReqUser() user: User) {
-    const { filename, search } = body;
-    const [embedding] = await this.embeddingService.generateEmbeddings([
-      search,
-      TaskType.RETRIEVAL_QUERY,
-    ]);
-
-    const hits = await this.oss.queryDocuments(embedding);
-    return {
-      hits: hits.map((e) => {
-        delete e.embedding;
-        return e;
-      }),
-    };
-  }
-
   @Post('chat')
   async chatWithDocs(@Body() body: SearchDocumentsDto, @ReqUser() user: User) {
     const { filename, search } = body;
-    const [embedding] = await this.embeddingService.generateEmbeddings([
-      search,
-      TaskType.RETRIEVAL_QUERY,
-    ]);
-
-    const hits = await this.oss.queryDocuments(embedding, 5);
-    this.logger.log(`Chat hits count: ${hits.map((e) => e.text)}`);
-    return this.embeddingService.chatAgent(
-      search,
-      hits as OpensearchIndexableDocument[],
-    );
+    const hits = await this.chatService.answerFromDocument(search, user.id);
+    return { hits };
   }
 }

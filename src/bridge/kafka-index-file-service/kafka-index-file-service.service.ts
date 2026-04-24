@@ -9,6 +9,8 @@ import { OpensearchService } from '../open-search/open-search.service';
 import { PdfParserService } from '../pdf-parser/pdf-parser.service';
 import { pipeline } from 'stream/promises';
 import { EmbeddingService } from '../embedding/embedding.service';
+import { PrismaService } from 'src/prisma/prisma.service';
+import { S3FileMetaData } from 'types/file-metadata';
 
 @Injectable()
 export class KafkaIndexFileServiceService {
@@ -21,6 +23,7 @@ export class KafkaIndexFileServiceService {
     private oss: OpensearchService,
     private pdfParser: PdfParserService,
     private embeddingService: EmbeddingService,
+    private prisma: PrismaService,
   ) {
     this.consumer = this.kafkaOrigin.kafka.consumer({
       groupId: KAFKA_CONSUMER_NAMES.VECTOR_INDEXING_CONSUMER,
@@ -36,6 +39,29 @@ export class KafkaIndexFileServiceService {
         },
       );
     }
+  }
+
+  async storeSementicMetaDataToDB(
+    textChunk: string,
+    s3FileMeta: S3FileMetaData,
+  ) {
+    this.embeddingService
+      .generateJSONBDescriptionFromPrologue(textChunk)
+      .then((res: any) => {
+        this.logger.log(
+          '>>>>>>>>>>>prisma handler response block',
+          JSON.parse(res.message.content),
+        );
+        return this.prisma.fileMetadata.create({
+          data: {
+            fileId: s3FileMeta.fileid,
+            semanticMetadata: res.message.content,
+          },
+        });
+      })
+      .then((dbRes) => {
+        this.logger.log('db response after storing metdata :---', dbRes);
+      });
   }
 
   async initializeConsumer() {
@@ -79,12 +105,21 @@ export class KafkaIndexFileServiceService {
           );
           await pipeline(chunkTextStream, async (stream) => {
             let index = -1;
+            let overviewChunk = '';
             for await (const chunk of stream) {
               heartbeat();
               index++;
               const textChunk = chunk.toString();
-              const [embedding] =
-                await this.embeddingService.generateEmbeddings([textChunk]);
+              if (index <= 2) {
+                overviewChunk += textChunk;
+                if (index === 2) {
+                  // call generate the json
+                  this.storeSementicMetaDataToDB(overviewChunk, fileMeta);
+                }
+              }
+
+              const embedding =
+                await this.embeddingService.generateEmbeddings(textChunk);
 
               this.logger.log(
                 `Indexing chunk ${index} for file ${fileMeta.fileid}`,
@@ -100,6 +135,14 @@ export class KafkaIndexFileServiceService {
                 mimeType: 'application/pdf',
                 size: ContentLength,
               });
+            }
+
+            // in case document was fully consumable (had length less than minimum chunksize)
+            // then the above condition of taking first 2 chunks failed and meta never created
+            // create jsonb meta in postgres as index never reached 2 after all for of iterations
+            if (index < 2) {
+              heartbeat();
+              await this.storeSementicMetaDataToDB(overviewChunk, fileMeta);
             }
           });
         }

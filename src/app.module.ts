@@ -15,6 +15,7 @@ import {
 } from '@willsoto/nestjs-prometheus';
 import { DocumentMetricService } from './document-metric/document-metric.service';
 import { UserGroupsModule } from './user-groups/user-groups.module';
+import { HttpModule } from '@nestjs/axios';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { UserGroupsModule } from './user-groups/user-groups.module';
     ScheduleModule.forRoot(),
     PrometheusModule.register(),
     UserGroupsModule,
+    HttpModule,
   ],
   controllers: [AppController],
   providers: [

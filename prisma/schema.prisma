@@ -67,6 +67,7 @@ model File {
   createdBy User @relation("userCreatedRelationFile", fields: [createdById], references:[id])
   parentFolder Folder @relation("parentFolderForFile", fields: [parentId], references: [id])
   groups GroupFile[] @relation("groupFileFileIdRelation")
+  filemeta FileMetadata? @relation("fileMetadataRelation")
   @@index([createdById,fileSystemPath])
 }
 
@@ -136,4 +137,15 @@ enum GROUP_MEMBER_STATUS {
   BLOCKED_BY_OWNER
   ACCEPTED
   REJECTED
+}
+
+model FileMetadata {
+  fileId            String   @id
+  file              File     @relation("fileMetadataRelation", fields: [fileId], references: [id], onDelete: Cascade)
+  technicalMetadata Json     @default("{}")
+  semanticMetadata  Json     @default("{}")
+  updatedAt         DateTime @updatedAt
+
+  // GIN index for fast LangGraph agent queries on the schemaless data
+  @@index([semanticMetadata], type: Gin)
 }
