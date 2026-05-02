@@ -39,7 +39,7 @@ export class AiRetrievalService {
       query,
       'QUERY',
     );
-    const docs = (await this.oss.queryDocuments(
+    const docs = (await this.oss.queryChunkDocuments(
       queryEmbeddings,
       query,
       userId,

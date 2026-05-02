@@ -67,7 +67,7 @@ model File {
   createdBy User @relation("userCreatedRelationFile", fields: [createdById], references:[id])
   parentFolder Folder @relation("parentFolderForFile", fields: [parentId], references: [id])
   groups GroupFile[] @relation("groupFileFileIdRelation")
-  filemeta FileMetadata? @relation("fileMetadataRelation")
+  filemeta FileMetadata[] @relation("fileMetadataRelation")
   @@index([createdById,fileSystemPath])
 }
 
@@ -140,12 +140,13 @@ enum GROUP_MEMBER_STATUS {
 }
 
 model FileMetadata {
-  fileId            String   @id
+  fileId            String   
+  chunkIndex        Int
   file              File     @relation("fileMetadataRelation", fields: [fileId], references: [id], onDelete: Cascade)
   technicalMetadata Json     @default("{}")
   semanticMetadata  Json     @default("{}")
   updatedAt         DateTime @updatedAt
-
   // GIN index for fast LangGraph agent queries on the schemaless data
   @@index([semanticMetadata], type: Gin)
+  @@id([fileId,chunkIndex])
 }

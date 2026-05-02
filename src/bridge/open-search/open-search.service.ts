@@ -1,13 +1,17 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Client } from '@opensearch-project/opensearch';
 import { ConfigService } from '@nestjs/config';
-import { OpensearchIndexableDocument } from 'types/opensearch-index';
+import {
+  DocumentMetadata,
+  OpensearchIndexableDocument,
+} from 'types/opensearch-index';
 import { Common } from '@opensearch-project/opensearch/api/_types/index.js';
 
 @Injectable()
 export class OpensearchService implements OnModuleInit {
   private readonly logger = new Logger(OpensearchService.name);
   private readonly INDEX_NAME = 'userfile-local-1536-v1'; // Versioning indexes is good practice
+  private readonly CONTEXT_INDEX_NAME = 'userfile-overview-1536-v1';
   private client: Client;
 
   constructor(private readonly configService: ConfigService) {
@@ -32,7 +36,7 @@ export class OpensearchService implements OnModuleInit {
     await this.createIndexIfNotExists();
   }
 
-  async indexDocument(document: OpensearchIndexableDocument) {
+  async indexChunkDocument(document: OpensearchIndexableDocument) {
     try {
       await this.client.index({
         index: this.INDEX_NAME,
@@ -54,7 +58,17 @@ export class OpensearchService implements OnModuleInit {
     }
   }
 
-  async queryDocuments(
+  async indexOverviewDocument(document: DocumentMetadata) {
+    this.client.index({
+      index: this.CONTEXT_INDEX_NAME,
+      id: document.id,
+      body: {
+        ...document,
+      },
+    });
+  }
+
+  async queryChunkDocuments(
     embeddings: number[],
     searchText: string,
     userId: string,
@@ -212,83 +226,184 @@ export class OpensearchService implements OnModuleInit {
     return totalDocs === processedDocs; // Return true if task is complete
   }
 
-  private async createIndexIfNotExists() {
-    try {
-      // 1. Check if index exists
-      const { body: exists } = await this.client.indices.exists({
-        index: this.INDEX_NAME,
-      });
+  private async createChunkIndex() {
+    return this.client.indices.create({
+      index: this.INDEX_NAME,
+      body: {
+        settings: {
+          'index.knn': true, // CRITICAL: Enables Vector Search
+          number_of_shards: 1,
+          number_of_replicas: 0,
+        },
+        mappings: {
+          properties: {
+            // --- Identity & Permissions ---
+            id: { type: 'keyword' },
+            createdById: { type: 'keyword' },
+            parentId: { type: 'keyword' },
 
-      if (exists) {
-        this.logger.log(
-          `Index "${this.INDEX_NAME}" already exists. Skipping creation.`,
-        );
-        return;
-      }
-
-      this.logger.log(
-        `Creating index "${this.INDEX_NAME}" with 1536 Vector mappings...`,
-      );
-
-      // 2. Create Index with Settings & Mappings
-      await this.client.indices.create({
-        index: this.INDEX_NAME,
-        body: {
-          settings: {
-            'index.knn': true, // CRITICAL: Enables Vector Search
-            number_of_shards: 1,
-            number_of_replicas: 1,
-          },
-          mappings: {
-            properties: {
-              // --- Identity & Permissions ---
-              id: { type: 'keyword' },
-              createdById: { type: 'keyword' },
-              parentId: { type: 'keyword' },
-
-              // --- Content (Hybrid Search) ---
-              text: {
-                type: 'text',
-                analyzer: 'standard', // For Full-Text Search ("invoice", "tax")
-              },
-              embedding: {
-                type: 'knn_vector',
-                dimension: 1536,
-                method: {
-                  name: 'hnsw',
-                  engine: 'faiss',
-                  space_type: 'innerproduct', // <--- UPDATED: Best for Qwen-2 1.5B vectors
-                  parameters: {
-                    ef_construction: 256,
-                    m: 24,
-                  },
+            // --- Content (Hybrid Search) ---
+            text: {
+              type: 'text',
+              analyzer: 'standard', // For Full-Text Search ("invoice", "tax")
+            },
+            embedding: {
+              type: 'knn_vector',
+              dimension: 1536,
+              method: {
+                name: 'hnsw',
+                engine: 'faiss',
+                space_type: 'innerproduct', // <--- UPDATED: Best for Qwen-2 1.5B vectors
+                parameters: {
+                  ef_construction: 256,
+                  m: 24,
                 },
               },
+            },
 
-              // --- Metadata ---
-              s3Key: { type: 'keyword' },
-              mimeType: { type: 'keyword' },
-              fileSystemPath: {
-                type: 'text',
-                fields: {
-                  raw: { type: 'keyword' }, // Allows exact path matching
-                },
+            // --- Metadata ---
+            s3Key: { type: 'keyword' },
+            mimeType: { type: 'keyword' },
+            fileSystemPath: {
+              type: 'text',
+              fields: {
+                raw: { type: 'keyword' }, // Allows exact path matching
               },
-              size: { type: 'long' },
-              pageCount: { type: 'integer' }, // Useful for your "Small File" logic
-              chunkIndex: { type: 'integer' }, // Helpful for sorting chunks later
-              createdAt: { type: 'date' },
-              updatedAt: { type: 'date' },
-              isDeleted: { type: 'boolean' },
-              groupIds: {
-                type: 'keyword',
-              },
+            },
+            size: { type: 'long' },
+            pageCount: { type: 'integer' }, // Useful for your "Small File" logic
+            chunkIndex: { type: 'integer' }, // Helpful for sorting chunks later
+            createdAt: { type: 'date' },
+            updatedAt: { type: 'date' },
+            isDeleted: { type: 'boolean' },
+            groupIds: {
+              type: 'keyword',
             },
           },
         },
+      },
+    });
+  }
+
+  private async createMetadataIndex() {
+    return this.client.indices.create({
+      index: this.CONTEXT_INDEX_NAME,
+      body: {
+        settings: {
+          index: {
+            knn: true,
+            number_of_shards: 1,
+            number_of_replicas: 0,
+          },
+        },
+        mappings: {
+          properties: {
+            embedding: {
+              type: 'knn_vector',
+              dimension: 1536,
+              method: {
+                name: 'hnsw',
+                engine: 'faiss',
+                space_type: 'innerproduct', // <--- UPDATED: Best for Qwen-2 1.5B vectors
+                parameters: {
+                  ef_construction: 256,
+                  m: 24,
+                },
+              },
+            },
+            categories: { type: 'keyword' },
+            personalization_score: { type: 'integer' },
+            content_format: { type: 'keyword' },
+            primary_subject: { type: 'text' },
+            entities: {
+              properties: {
+                nouns_of_interest: {
+                  type: 'nested',
+                  properties: {
+                    noun: {
+                      type: 'text',
+                      fields: {
+                        as_keyword: {
+                          type: 'keyword',
+                        },
+                      },
+                    },
+                    context: {
+                      type: 'text',
+                    },
+                  },
+                },
+                locations: { type: 'keyword' },
+                dates_and_times: {
+                  type: 'nested',
+                  properties: {
+                    date: {
+                      type: 'date',
+                      format: 'strict_date_optional_time',
+                    },
+                    context: { type: 'text' },
+                  },
+                },
+                all_relevant_dates: {
+                  type: 'date',
+                  format: 'strict_date_optional_time',
+                },
+                most_relevant_date: {
+                  type: 'date',
+                  format: 'strict_date_optional_time',
+                },
+                organizations: { type: 'keyword' },
+              },
+            },
+            keywords: { type: 'keyword' },
+            is_technical_or_academic: { type: 'boolean' },
+            createdById: { type: 'keyword' },
+          },
+        },
+      },
+    });
+  }
+
+  private async createIndexIfNotExists() {
+    try {
+      // 1. Check if index exists
+
+      const promise1 = this.client.indices.exists({
+        index: this.INDEX_NAME,
       });
 
-      this.logger.log(`Index "${this.INDEX_NAME}" created successfully.`);
+      const promise2 = this.client.indices.exists({
+        index: this.CONTEXT_INDEX_NAME,
+      });
+
+      const [{ body: chunkIndexExists }, { body: contextIndexExists }] =
+        await Promise.all([promise1, promise2]);
+
+      if (chunkIndexExists) {
+        this.logger.log(
+          `Index "${this.INDEX_NAME}" already exists. Skipping creation.`,
+        );
+      } else {
+        this.logger.log(
+          `Creating index "${this.INDEX_NAME}" with 1536 Vector mappings...`,
+        );
+        await this.createChunkIndex();
+      }
+
+      if (contextIndexExists) {
+        this.logger.log(
+          `Index "${this.CONTEXT_INDEX_NAME}" already exists. Skipping creation.`,
+        );
+      } else {
+        this.logger.log(
+          `Creating index "${this.CONTEXT_INDEX_NAME}" with 1536 Vector mappings...`,
+        );
+        await this.createMetadataIndex();
+      }
+
+      this.logger.log(
+        `Indices "${this.INDEX_NAME}" and "${this.CONTEXT_INDEX_NAME}" were created successfully.`,
+      );
     } catch (error: any) {
       this.logger.error(
         `Failed to initialize OpenSearch index: ${error.message}`,

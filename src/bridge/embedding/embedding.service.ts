@@ -2,35 +2,84 @@ import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-const getJsonMetaGenerationPrompt = `You are an expert data extraction and classification engine pipeline. Your task is to analyze the beginning of a document and generate highly accurate, structured JSON metadata. 
+const categories = [
+  'finance_and_commerce',
+  'medical_and_health',
+  'fitness_and_diet',
+  'professional_and_career',
+  'technology_and_hardware',
+  'housing_and_utilities',
+  'vehicles_and_transport',
+  'education_and_research',
+  'unknown_or_other',
+];
+
+const getJsonMetaGenerationPrompt = `
+***
+
+You are an expert data extraction and classification engine pipeline. Your task is to analyze the beginning of a document and generate highly accurate, structured JSON metadata.
 
 Analyze the provided text and extract the following schema. Output strictly valid JSON and absolutely nothing else. Do not include markdown formatting, backticks, or conversational preamble.
 
+Allowed Category ENUMs:
+
+${categories.join(', ')}
+
 Required JSON Schema:
+
+JSON:-
 {
-  "document_category": "factual" | "fiction" | "unknown",
+  "categories": ["Must be an array of 1 or more strings selected STRICTLY from the Allowed Category ENUMs list"],
+  "personalization_score": 0,
   "content_format": "paragraphs" | "tabular" | "both" | "unknown",
   "primary_subject": "A 1-2 sentence description of what the overall document is about.",
   "entities": {
-    "nouns_of_interest": ["List specific named subjects (people, animals, or unique items) with a brief descriptor, e.g., 'Bruno the dog', 'Daisy the girl'.", "Empty array if none"],
-    "locations": ["List of specific places, cities, or facilities", "Empty array if none"],
-    "dates_and_times": [
+    "nouns_of_interest": [
       {
-        "date": "The specific date, year, or time extracted",
-        "context": "What this date represents (e.g., 'patient's date of birth', 'date of report', 'invoice due date')"
+        "noun": "The specific entity name (e.g., 'Dr. Suman', 'Airtel', 'AWS')",
+        "context": "A 1-to-3 word description of their specific role in this document (e.g., 'Attending Physician', 'Telecom Provider', 'Cloud Host')"
       }
     ],
-    "organizations": ["Companies, institutions, or groups", "Empty array if none"]
+    "locations": ["List of specific places"],
+    "dates_and_times": [
+      {
+        "date": "1990-03-25T12:42:31",
+        "context": "Description of what this date represents"
+      }
+    ],
+    "all_relevant_dates": ["List of all formatted date strings found"],
+    "most_relevant_date": "The single most important document date for indexing",
+    "organizations": ["Companies, institutions, or groups"]
   },
-  "keywords": ["3 to 5 searchable tags or topics"],
+  "keywords": ["3 to 5 searchable tags"],
   "is_technical_or_academic": boolean
 }
 
+Personalization Score Logic (Scale 0-10):
+Evaluate the intended audience and sensitivity of the data:
+
+Score 10: Highly personal/private (e.g., Medical reports, personal bank statements, private letters).
+
+Score 6-8: Professional or organizational with restricted audience (e.g., Internal company quarterly reports, project briefs, invoices).
+
+Score 3-5: Semi-public/Niche (e.g., Specialized newsletters, local community notices).
+
+Score 0: Public/General Knowledge (e.g., Wikipedia snippets, news articles, public manuals).
+
+**CRITICAL: Strict Date Formatting Protocol:**
+You must parse and convert ALL dates into strict ISO 8601 format: \`YYYY-MM-DDThh:mm:ss\`.
+* **Example:** \`2024-01-02T09:15:00\`
+* **Example:** \`1990-03-25T12:42:31\`
+* If the original text lacks a specific time, you MUST default exactly to \`T00:00:00\`.
+* Do not append timezone offsets (like 'Z' or '+05:30') unless explicitly stated in the text.
+
 Extraction Rules:
-1. Differentiate carefully if the text describes real-world factual events/data or creative fiction.
-2. For 'content_format', analyze if the text appears to be standard prose (paragraphs), structured data (tabular/lists), or a mix of both.
-3. If an entity type is not found in the text, return an empty array '[]'. Do not invent entities.
-`;
+
+Empty States: Return an empty array [] for missing entity types. Do not invent data.
+
+Date Priority: For most_relevant_date, prioritize the primary timestamp (e.g., Transaction Date, Report Date).
+
+Cross-Category: If a concept spans multiple categories, include multiple ENUMs in the array.`;
 
 const getAnswerFromDocPrompt = (
   xml,
@@ -95,7 +144,10 @@ export class EmbeddingService implements OnModuleInit {
     });
   }
 
-  async generateJSONBDescriptionFromPrologue(chunks: string) {
+  async generateJSONBDescriptionFromPrologue(
+    chunks: string,
+    think: boolean = false,
+  ) {
     return new Promise((resolve, reject) => {
       this.httpService
         .post<any>(this.configService.get<string>('CHAT_API_URL'), {
@@ -113,7 +165,12 @@ export class EmbeddingService implements OnModuleInit {
           stream: false,
           format: 'json',
           temperature: 0.0,
-          think: false,
+          think,
+          options: {
+            num_ctx: 16384, // Give it a large window for PDF + Thinking + JSON
+            num_predict: -1, // -1 tells Ollama "don't stop until the model is done"
+            temperature: 0, // Keep it deterministic for metadata extraction
+          },
         })
         .subscribe((res) => {
           resolve(res.data);
@@ -145,5 +202,20 @@ export class EmbeddingService implements OnModuleInit {
           resolve(res.data);
         });
     });
+  }
+
+  /**
+   * Calculates Dot Product for normalized vectors.
+   * Since ||A|| and ||B|| are 1, this equals Cosine Similarity.
+   */
+  fastSimilarityBetweenUnitVectors(vecA: number[], vecB: number[]) {
+    let score = 0;
+    const len = vecA.length;
+
+    for (let i = 0; i < len; i++) {
+      score += vecA[i] * vecB[i];
+    }
+
+    return score;
   }
 }

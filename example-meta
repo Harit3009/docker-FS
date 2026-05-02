@@ -1,0 +1,73 @@
+The user wants me to act as an expert data extraction and classification engine.
+I need to analyze the provided text (an Indian Income Tax Return Acknowledgement) and output a single, strictly valid JSON object based on a predefined schema.
+
+Constraint Checklist & Confidence Score:
+1. Output strictly valid JSON: Yes.
+2. Absolutely nothing else: Yes.
+3. No markdown/backticks/preamble: Yes.
+4. Analyze text: Yes.
+5. Extract required schema: Yes.
+6. Categories (ENUMs): Yes.
+7. Personalization Score (0-10): Yes.
+8. Content Format: Yes.
+9. Primary Subject (1-2 sentences): Yes.
+10. Entities (Nouns, Locations, Dates, Orgs): Yes.
+11. Keywords (3-5): Yes.
+12. Is Technical/Academic (boolean): Yes.
+13. Strict Date Formatting Protocol: Yes (Day Month Year HH:MM:SS AM/PM).
+14. Empty States ([]): Yes.
+15. Date Priority/Cross-Category: Yes.
+
+Confidence Score: 5/5
+
+Plan:
+1. Determine Categories.
+2. Determine Personalization Score.
+3. Determine Content Format.
+4. Write Primary Subject.
+5. Extract Entities (Nouns, Locations, Dates, Orgs).
+6. Extract Keywords.
+7. Determine Technical/Academic status.
+8. Format the final JSON strictly.
+
+Execution:
+
+1. **Categories:** This is an Income Tax Return. This falls under finance and commerce.
+   -> `["finance_and_commerce"]`
+
+2. **Personalization Score:** This document contains highly specific personal financial data (Name, PAN, Address, Income figures, Tax details).
+   -> Score 10 (Highly personal/private).
+
+3. **Content Format:** The data is presented in a structured, form-like manner, but not strictly tabular in the sense of a spreadsheet. It's a detailed acknowledgement form. I will classify it as 'paragraphs' as the structure is narrative/form-based, not a clean table.
+   -> `"paragraphs"`
+
+4. **Primary Subject:** The document is an official acknowledgement of an Indian Income Tax Return (ITR-3) filed by Harit Mohan for the assessment year 2025-26.
+   -> "This document serves as the official acknowledgement for an Indian Income Tax Return (ITR-3) filed by Harit Mohan for the assessment year 2025-26, detailing his income and tax liabilities."
+
+5. **Entities:**
+    * **Nouns of Interest:** Harit Mohan (Individual taxpayer), PAN (Tax identification number), ITR-3 (Form type), Income Tax Return (Document type), Taxable Income (Financial metric).
+    * **Locations:** Noida H.O, Gautam Buddha Nagar, Buddha Nagar, Uttar Pradesh, India.
+    * **Dates and Times:**
+        * 14-Sep-2025 (Date of filing)
+        * 14-Sep-2025 16:09:59 (Transmission date/time)
+        * 14-Sep-2025 (Verification date)
+    * **All Relevant Dates:** 14 September 2025, 14 September 2025 04:09:59 PM, 14 September 2025.
+    * **Most Relevant Date:** 14 September 2025 04:09:59 PM (The exact time of transmission/filing).
+    * **Organizations:** Indian Income Tax (Implied authority).
+
+6. **Keywords:** Income Tax, ITR-3, Tax Filing, Assessment Year, PAN.
+
+7. **Is Technical or Academic:** Yes, it is a highly technical financial/legal document.
+   -> `true`
+
+8. **Final JSON Construction and Date Formatting Check:**
+    * 14-Sep-2025 -> 14 September 2025 12:00:00 AM (If used alone)
+    * 14-Sep-2025 16:09:59 -> 14 September 2025 04:09:59 PM
+
+(Self-Correction on Date Formatting: Ensure all dates are converted correctly.)
+
+*   Date of filing: 14 September 2025 12:00:00 AM (Default time)
+*   Income Tax Return electronically transmitted on: 14 September 2025 04:09:59 PM
+*   Verified on: 14 September 2025 12:00:00 AM (Default time)
+
+I will use the most precise date/time for the primary date.
