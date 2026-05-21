@@ -14,7 +14,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { Prisma, User } from '@prisma/client';
+import { Folder, Prisma, User } from '@prisma/client';
 import { PASSPORT_STRATEGIES } from '../../constants';
 import { ReqUser } from 'src/decorators/param-decorators/user.decorator';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -36,9 +36,6 @@ import {
 } from './Dto';
 import { plainToInstance } from 'class-transformer';
 import { KafkaDeleteConsumerService } from 'src/bridge/kafka-delete-consumer/kafka-delete-consumer.service';
-import { OpensearchService } from 'src/bridge/open-search/open-search.service';
-import { EmbeddingService } from 'src/bridge/embedding/embedding.service';
-import { OpensearchIndexableDocument } from 'types/opensearch-index';
 import { AiRetrievalService } from 'src/bridge/ai-retrieval/ai-retrieval.service';
 
 @UseGuards(AuthGuard([PASSPORT_STRATEGIES.INCOMING_JWT_VERIFICATION]))
@@ -65,13 +62,14 @@ export class FileSystemController {
       },
     });
 
-    if (!folder) {
+    if (!folder && parentFolderId) {
       throw new UnauthorizedException('Unauthorised to access folder');
     }
 
     const args: Prisma.FolderFindManyArgs = {
       where: {
-        parentId: parentFolderId,
+        parentId: parentFolderId || null,
+        createdById: user.id,
       },
       take: limit + 1,
     };
@@ -107,13 +105,13 @@ export class FileSystemController {
       },
     });
 
-    if (!folder) {
+    if (!folder && parentFolderId) {
       throw new UnauthorizedException('No Folder found!');
     }
 
     const args: Prisma.FileFindManyArgs = {
       where: {
-        parentId: parentFolderId,
+        parentId: parentFolderId ?? null,
       },
       take: limit + 1,
     };
@@ -121,6 +119,7 @@ export class FileSystemController {
     if (cursor) {
       args.cursor = { id: cursor };
     }
+    this.logger.log('parent id in listing', parentFolderId, args);
 
     const data = await this.prisma.extended.file.findMany(args);
     let cursorId;
@@ -142,16 +141,19 @@ export class FileSystemController {
     @ReqUser() user: User,
     @Body() body: GetPutSignedURLBodyDto,
   ) {
-    const folder = await this.prisma.getFolderById(body.parentFolderId);
+    let folder: Folder;
+    if (body.parentFolderId)
+      folder = await this.prisma.getFolderById(body.parentFolderId);
 
-    if (folder.createdById !== user.id) {
+    if (folder && folder.createdById !== user.id) {
       throw new UnauthorizedException('Does not exist');
     }
 
     const existing = await this.prisma.extended.file.findFirst({
       where: {
         createdById: user.id,
-        fileSystemPath: `${folder.fileSystemPath}${body.filename}`,
+        fileSystemPath: `${folder?.fileSystemPath || '/'}${body.filename}`,
+        isDeleted: false,
       },
     });
 
@@ -185,25 +187,29 @@ export class FileSystemController {
 
   @Post('create-folder')
   async createFolder(@Body() body: CreateFolderBodyDto, @ReqUser() user: User) {
-    const parenFolder = await this.prisma.extended.folder.findUnique({
-      where: {
-        id: body.parentFolderId,
-        createdById: user.id,
-      },
-    });
+    let parenFolder: Folder = null;
+    if (body.parentFolderId) {
+      parenFolder = await this.prisma.extended.folder.findUnique({
+        where: {
+          id: body.parentFolderId,
+          createdById: user.id,
+        },
+      });
 
-    if (!parenFolder) {
-      throw new UnauthorizedException('Folder access unauthorized');
+      if (!parenFolder) {
+        throw new UnauthorizedException('Folder access unauthorized');
+      }
     }
 
     const createdFolderId = uuidV4();
 
     const data = await this.prisma.folder.create({
       data: {
-        fileSystemPath: parenFolder.fileSystemPath + body.folderName + '/',
+        fileSystemPath:
+          (parenFolder?.fileSystemPath || '/') + body.folderName + '/',
         createdBy: { connect: { id: user.id } },
         id: createdFolderId,
-        parent: { connect: { id: parenFolder.id } },
+        ...(parenFolder ? { parent: { connect: { id: parenFolder.id } } } : {}),
       },
     });
     return data;
@@ -211,7 +217,8 @@ export class FileSystemController {
 
   @Put('rename-folder')
   async RenameFolder(@Body() body: RenameRecordDTO, @ReqUser() user: User) {
-    const folder = await this.prisma.extended.folder.findUnique({
+    let folder: Folder = null;
+    folder = await this.prisma.extended.folder.findUnique({
       where: {
         id: body.folderToRenameId,
         createdById: user.id,
@@ -305,7 +312,7 @@ export class FileSystemController {
     });
 
     if (!fileToDelete) {
-      throw new UnauthorizedException('Unknown Folder');
+      throw new UnauthorizedException('Unknown File');
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -383,12 +390,15 @@ export class FileSystemController {
   ) {
     const { s3Key, uploadId, parentFolderId, partCount } = body;
 
-    const parentFolder = await this.prisma.extended.folder.findUnique({
-      where: { id: parentFolderId },
-    });
+    let parentFolder: Folder = null;
+    if (parentFolderId) {
+      parentFolder = await this.prisma.extended.folder.findUnique({
+        where: { id: parentFolderId },
+      });
 
-    if (parentFolder.createdById !== user.id) {
-      throw new UnauthorizedException('Does not exist');
+      if (parentFolder.createdById !== user.id) {
+        throw new UnauthorizedException('Does not exist');
+      }
     }
 
     const promises = [];
@@ -408,11 +418,14 @@ export class FileSystemController {
     @ReqUser() user: User,
   ) {
     const { s3Key, uploadId, parentFolderId, parts } = body;
-    const parentFolder = await this.prisma.extended.folder.findUnique({
-      where: { id: parentFolderId },
-    });
-    if (parentFolder.createdById !== user.id) {
-      throw new UnauthorizedException('Does not exist');
+    let parentFolder: Folder = null;
+    if (parentFolderId) {
+      parentFolder = await this.prisma.extended.folder.findUnique({
+        where: { id: parentFolderId },
+      });
+      if (parentFolder.createdById !== user.id) {
+        throw new UnauthorizedException('Does not exist');
+      }
     }
 
     await this.s3Service.completeMultipartUpload(s3Key, uploadId, parts);
@@ -429,18 +442,21 @@ export class FileSystemController {
   ) {
     const { folderName, parentFolderId, overWrite } = body;
 
-    const parentFolder = await this.prisma.extended.folder.findUnique({
-      where: { id: parentFolderId, createdById: user.id },
-    });
+    let parentFolder: Folder;
+    if (parentFolderId) {
+      parentFolder = await this.prisma.extended.folder.findUnique({
+        where: { id: parentFolderId, createdById: user.id },
+      });
 
-    if (!parentFolder) {
-      throw new UnauthorizedException('Does not exist');
+      if (!parentFolder) {
+        throw new UnauthorizedException('Does not exist');
+      }
     }
 
     const existing = await this.prisma.extended.folder.findFirst({
       where: {
         createdById: user.id,
-        fileSystemPath: `${parentFolder.fileSystemPath}${body.folderName}/`,
+        fileSystemPath: `${parentFolder?.fileSystemPath || '/'}${body.folderName}/`,
       },
     });
 

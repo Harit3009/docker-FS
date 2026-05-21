@@ -8,6 +8,7 @@ export const KAFKA_TOPIC_NAMES = {
   FILE_UPLOADED: 'Topic.Kafka.file-uploaded',
   MARK_CHILDREN_FOR_DELETION: 'Topic.Kafka.mark-children-for-delete',
   MARK_CHILDEREN_FOR_DELETE_DLQ: 'Topic.Kafka.mark-children-for-deletion-dlq',
+  VECTOR_INDEXING_DLQ: 'Topic.Kafka.vector-indexing-dlq',
 } as const;
 
 export const KAFKA_CONSUMER_NAMES = {

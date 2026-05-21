@@ -53,11 +53,23 @@ export class KafkaExtractZipService {
         );
         const { Metadata } = await this.s3.getHeadObjectCommand(s3Key);
         const meta = Metadata as unknown as S3FileMetaData;
-        const { createdbyid, fileid, filesystempath: fspath, parentid } = meta;
+        const {
+          createdbyid,
+          fileid,
+          filesystempath: fspath,
+          parentid: rawParentId,
+        } = meta;
         const filesystempath = decodeURIComponent(fspath);
         this.logger.log(
-          `Metadata - createdById: ${createdbyid}, fileId: ${fileid}, fileSystemPath: ${filesystempath}, parentId: ${parentid}`,
+          `Metadata - createdById: ${createdbyid}, fileId: ${fileid}, fileSystemPath: ${filesystempath}, parentId: ${rawParentId}`,
         );
+        const parentid =
+          rawParentId === 'null' ||
+          rawParentId === 'undefined' ||
+          rawParentId === ''
+            ? undefined
+            : rawParentId;
+
         const createdPaths: Record<string, string> = {};
         const inputZipStream = await this.s3.getObjectStream(s3Key);
         await pipeline(
@@ -97,7 +109,9 @@ export class KafkaExtractZipService {
                         data: {
                           fileSystemPath: currentPath,
                           createdBy: { connect: { id: createdbyid } },
-                          parent: { connect: { id: currentParentId } },
+                          ...(currentParentId
+                            ? { parent: { connect: { id: currentParentId } } }
+                            : {}),
                         },
                       });
                   }
@@ -121,7 +135,7 @@ export class KafkaExtractZipService {
                   createdbyid: meta.createdbyid,
                   fileid: fileId,
                   parentid: currentParentId,
-                  overwrite: 'true',
+                  overwrite: 'false',
                   needsextraction: 'false',
                 };
 

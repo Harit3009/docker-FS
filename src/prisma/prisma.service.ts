@@ -83,7 +83,7 @@ export class PrismaService
 
   async getFolderById(id: string, includeDeleted: boolean = false) {
     return this.folder.findUnique({
-      where: { id: id, isDeleted: includeDeleted },
+      where: { id: id, ...(includeDeleted ? {} : { isDeleted: false }) },
     });
   }
 

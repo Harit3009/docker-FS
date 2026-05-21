@@ -23,8 +23,6 @@ model User {
   isDeleted Boolean @default(false)
   googleAccessToken String? @db.Text
   googleRefreshToken String? @db.Text
-  rootFolderId String? @unique
-  rootFolder Folder? @relation("rootFolder", fields: [rootFolderId], references: [id])
   groups GroupMember[] @relation("groupMemberUserIdRelation")
   createdFolder Folder[] @relation("userCreatedRelation")
   createdFiles File [] @relation("userCreatedRelationFile")
@@ -47,14 +45,13 @@ model Folder {
   childFolders Folder[] @relation("childFolders")
   childFiles File[] @relation("parentFolderForFile")
   parent Folder? @relation("childFolders", fields: [parentId], references: [id])
-  rootUser User? @relation("rootFolder")
   groups GroupFolder [] @relation("groupFolderFolderIdRelation")
   @@index([createdById,fileSystemPath])
 }
 
 model File {
   id String @id @default(uuid())
-  parentId String
+  parentId String?
   s3Key String @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -65,7 +62,7 @@ model File {
   isDeleted Boolean @default(false)
   deletedAt DateTime? 
   createdBy User @relation("userCreatedRelationFile", fields: [createdById], references:[id])
-  parentFolder Folder @relation("parentFolderForFile", fields: [parentId], references: [id])
+  parentFolder Folder? @relation("parentFolderForFile", fields: [parentId], references: [id])
   groups GroupFile[] @relation("groupFileFileIdRelation")
   filemeta FileMetadata[] @relation("fileMetadataRelation")
   @@index([createdById,fileSystemPath])

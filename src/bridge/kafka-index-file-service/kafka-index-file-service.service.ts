@@ -52,28 +52,19 @@ export class KafkaIndexFileServiceService {
     this.embeddingService
       .generateJSONBDescriptionFromPrologue(textChunk, true)
       .then((res: any) => {
-        this.logger.log('>>>>>>>>>>>prisma handler response block', chunkIndex);
-        // const filePath = join(process.cwd(), 'example-meta');
-
-        // writeFile(filePath, res.message.thinking, 'utf8').catch((error) => {
-        //   this.logger.error('error while writing thinking tokens', error);
-        // });
-
         const parsedjson = JSON.parse(res.message.content) as DocumentMetadata;
 
-        parsedjson.entities.all_relevant_dates =
-          parsedjson.entities.all_relevant_dates.map((str) =>
-            this.cleanDateToISO(str),
-          );
-        parsedjson.entities.most_relevant_date = parsedjson.entities
-          .most_relevant_date
-          ? this.cleanDateToISO(parsedjson.entities.most_relevant_date)
+        this.logger.log('The parsed json from AI is >>>>', parsedjson);
+        parsedjson.all_relevant_dates = parsedjson.all_relevant_dates.map(
+          (str) => this.cleanDateToISO(str),
+        );
+        parsedjson.most_relevant_date = parsedjson.most_relevant_date
+          ? this.cleanDateToISO(parsedjson.most_relevant_date)
           : null;
-        parsedjson.entities.dates_and_times =
-          parsedjson.entities.dates_and_times.map((obj) => ({
-            ...obj,
-            date: this.cleanDateToISO(obj.date),
-          }));
+        parsedjson.dates_and_times = parsedjson.dates_and_times.map((obj) => ({
+          ...obj,
+          date: this.cleanDateToISO(obj.date),
+        }));
 
         const dbPromise = this.prisma.fileMetadata.create({
           data: {
@@ -87,7 +78,7 @@ export class KafkaIndexFileServiceService {
         });
 
         const indexingPromise = this.oss.indexOverviewDocument({
-          id: `${s3FileMeta.fileid}-chunk-${chunkIndex}`,
+          id: `${s3FileMeta.fileid}`,
           ...parsedjson,
           embedding,
         });
@@ -151,27 +142,9 @@ export class KafkaIndexFileServiceService {
           );
           await pipeline(chunkTextStream, async (stream) => {
             let index = -1;
-            let overviewChunksObj: Record<
-              number | string,
-              { embedding: number[]; text: string }
-            > = {
-              0: {
-                embedding: [],
-                text: '',
-              },
-            };
-            let contextAnchorChunkIndex = 0;
-
-            const getCurrentAnchor = () =>
-              overviewChunksObj[contextAnchorChunkIndex];
-
-            const addNewAnchor = (
-              chunkIndex: number,
-              text: string,
-              embedding: number[],
-            ) => {
-              contextAnchorChunkIndex = chunkIndex;
-              overviewChunksObj[contextAnchorChunkIndex] = { text, embedding };
+            let overviewChunksObj: { embedding: number[]; text: string } = {
+              embedding: [],
+              text: '',
             };
 
             for await (const chunk of stream) {
@@ -184,38 +157,16 @@ export class KafkaIndexFileServiceService {
                 await this.embeddingService.generateEmbeddings(textChunk);
 
               if (index <= 2) {
-                overviewChunksObj[0].text += textChunk;
+                overviewChunksObj.text += textChunk;
               }
 
               if (index === 2) {
                 // call generate the json
                 const anchorEmbeddings =
                   await this.embeddingService.generateEmbeddings(
-                    overviewChunksObj[contextAnchorChunkIndex].text,
+                    overviewChunksObj.text,
                   );
-                overviewChunksObj[0].embedding = anchorEmbeddings;
-              }
-
-              if (index > 2) {
-                // compare the chunk's similarity with current anchor
-                const currAnchor = getCurrentAnchor();
-                const allAnchors = Object.keys(overviewChunksObj);
-                const similarities = allAnchors.map((ind) =>
-                  this.embeddingService.fastSimilarityBetweenUnitVectors(
-                    overviewChunksObj[ind].embedding,
-                    chunkEmbedding,
-                  ),
-                );
-
-                const isSimilar = similarities.find((sim) => sim > 0.75);
-                // create new anchor with chunk index as key and text and embedding as value
-                if (!isSimilar) {
-                  this.logger.log('added chunk with simlarity >>>>', {
-                    similarity: Math.max(...similarities),
-                    index,
-                  });
-                  addNewAnchor(index, textChunk, chunkEmbedding);
-                }
+                overviewChunksObj.embedding = anchorEmbeddings;
               }
 
               this.logger.log(
@@ -234,30 +185,8 @@ export class KafkaIndexFileServiceService {
               });
             }
 
-            // create and add all the contexxt anchors to DB as well as opensearch
-            const promises = [];
-            this.logger.log(
-              'length is >>>>>',
-              Object.entries(overviewChunksObj).length,
-            );
-            Object.entries(overviewChunksObj).forEach((entry) => {
-              this.logger.log(entry);
-              const [chunkIndex, { embedding, text }] = entry;
-              this.logger.log(
-                'created following overview chunks >>>>',
-                chunkIndex,
-                text,
-              );
-              promises.push(
-                this.storeSemanticAnchor(
-                  text,
-                  fileMeta,
-                  Number(chunkIndex),
-                  embedding,
-                ),
-              );
-            });
-            await Promise.all(promises);
+            const { text, embedding } = overviewChunksObj;
+            await this.storeSemanticAnchor(text, fileMeta, 0, embedding);
           });
         }
 
@@ -265,7 +194,7 @@ export class KafkaIndexFileServiceService {
           {
             topic: KAFKA_TOPIC_NAMES.FILE_UPLOADED,
             partition,
-            offset: (Number(message.offset) + 1).toString(),
+            offset: (BigInt(message.offset) + BigInt(1)).toString(),
           },
         ]);
       },

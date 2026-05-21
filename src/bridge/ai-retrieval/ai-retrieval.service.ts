@@ -4,27 +4,6 @@ import { OpensearchService } from '../open-search/open-search.service';
 import { OpensearchIndexableDocument } from 'types/opensearch-index';
 import { PrismaService } from 'src/prisma/prisma.service';
 
-const xml = `<Documents>
-  <Document id="file-uuid-1">
-    <Context>
-      {INSERT_JSONB_METADATA_FOR_FILE_1}
-    </Context>
-    <Retrieved_Chunks>
-      [Chunk 1]: {text}
-      [Chunk 2]: {text}
-    </Retrieved_Chunks>
-  </Document>
-
-  <Document id="file-uuid-2">
-    <Context>
-      {INSERT_JSONB_METADATA_FOR_FILE_2}
-    </Context>
-    <Retrieved_Chunks>
-      [Chunk 1]: {text}
-    </Retrieved_Chunks>
-  </Document>
-</Documents>`;
-
 @Injectable()
 export class AiRetrievalService {
   private logger = new Logger(AiRetrievalService.name);
@@ -39,6 +18,7 @@ export class AiRetrievalService {
       query,
       'QUERY',
     );
+
     const docs = (await this.oss.queryChunkDocuments(
       queryEmbeddings,
       query,
@@ -63,7 +43,8 @@ export class AiRetrievalService {
     });
 
     const innerXml = jsonBRecords.map((d) => {
-      const { semanticMetadata, fileId } = d;
+      const { semanticMetadata: meta, fileId } = d;
+      const { embedding, ...semanticMetadata } = meta as Record<string, string>;
       return `<Document id="${fileId}">
         <Context>
             ${semanticMetadata}

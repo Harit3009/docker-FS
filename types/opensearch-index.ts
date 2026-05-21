@@ -26,33 +26,33 @@ export enum DocumentCategory {
   Unknown = 'unknown_or_other',
 }
 
-/**
- * Represents the strict date format: "D MMMM YYYY HH:MM:SS AM/PM"
- * Example: "25 March 1990 12:42:31 PM"
- */
-type FormattedDateString = string;
-
-interface EntityDate {
-  date: FormattedDateString;
-  context: string;
-}
-
 export interface DocumentMetadata {
   id?: string;
-  categories: DocumentCategory[];
+  categories: string[];
   personalization_score: number;
-  content_format: 'paragraphs' | 'tabular' | 'both' | 'unknown';
+  content_format: string;
   primary_subject: string;
-  entities: {
-    nouns_of_interest: string[];
-    locations: string[];
-    dates_and_times: EntityDate[];
-    all_relevant_dates: FormattedDateString[];
-    most_relevant_date: FormattedDateString;
-    organizations: string[];
-  };
+  entities: Entities;
+  locations: string[];
+  dates_and_times: DatesAndTime[];
+  all_relevant_dates: string[];
+  most_relevant_date: string;
+  organizations: string[];
   keywords: string[];
   is_technical_or_academic: boolean;
   embedding?: number[];
-  createdById: string;
+}
+
+export interface Entities {
+  nouns_of_interest: NounsOfInterest[];
+}
+
+export interface NounsOfInterest {
+  noun: string;
+  context: string;
+}
+
+export interface DatesAndTime {
+  date: string;
+  context: string;
 }

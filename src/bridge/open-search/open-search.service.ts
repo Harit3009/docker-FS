@@ -298,13 +298,14 @@ export class OpensearchService implements OnModuleInit {
         },
         mappings: {
           properties: {
+            id: { type: 'keyword' },
             embedding: {
               type: 'knn_vector',
               dimension: 1536,
               method: {
                 name: 'hnsw',
                 engine: 'faiss',
-                space_type: 'innerproduct', // <--- UPDATED: Best for Qwen-2 1.5B vectors
+                space_type: 'innerproduct',
                 parameters: {
                   ef_construction: 256,
                   m: 24,
@@ -333,28 +334,28 @@ export class OpensearchService implements OnModuleInit {
                     },
                   },
                 },
-                locations: { type: 'keyword' },
-                dates_and_times: {
-                  type: 'nested',
-                  properties: {
-                    date: {
-                      type: 'date',
-                      format: 'strict_date_optional_time',
-                    },
-                    context: { type: 'text' },
-                  },
-                },
-                all_relevant_dates: {
-                  type: 'date',
-                  format: 'strict_date_optional_time',
-                },
-                most_relevant_date: {
-                  type: 'date',
-                  format: 'strict_date_optional_time',
-                },
-                organizations: { type: 'keyword' },
               },
             },
+            locations: { type: 'keyword' },
+            dates_and_times: {
+              type: 'nested',
+              properties: {
+                date: {
+                  type: 'date',
+                  format: 'strict_date_optional_time',
+                },
+                context: { type: 'text' },
+              },
+            },
+            all_relevant_dates: {
+              type: 'date',
+              format: 'strict_date_optional_time',
+            },
+            most_relevant_date: {
+              type: 'date',
+              format: 'strict_date_optional_time',
+            },
+            organizations: { type: 'keyword' },
             keywords: { type: 'keyword' },
             is_technical_or_academic: { type: 'boolean' },
             createdById: { type: 'keyword' },
