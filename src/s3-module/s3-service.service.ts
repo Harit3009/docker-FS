@@ -3,7 +3,6 @@ import {
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
   CreateMultipartUploadCommandInput,
-  CreateMultipartUploadCommandOutput,
   DeleteObjectsCommand,
   DeleteObjectsCommandInput,
   GetObjectCommand,
@@ -51,7 +50,7 @@ export class S3Service {
   }
 
   async getPutSignedUrlForFile(
-    parentFolder: Folder,
+    parentFolder: Folder | null,
     {
       fileName,
       createdBy,
@@ -62,17 +61,17 @@ export class S3Service {
     const fileId = uuidv4();
 
     const command: PutObjectCommandInput = {
-      Key: path.join(parentFolder.createdById, fileId),
+      Key: fileId,
       Bucket: process.env.AWS_BUCKET_NAME,
       ContentType: contentType,
       Metadata: {
         createdbyemail: encodeURIComponent(createdBy.email),
         filesystempath: encodeURIComponent(
-          `${parentFolder.fileSystemPath}${fileName}`,
+          `${parentFolder?.fileSystemPath || '/'}${fileName}`,
         ),
         createdbyid: createdBy.id,
         fileid: fileId,
-        parentid: parentFolder.id,
+        parentid: parentFolder?.id || 'root',
         overwrite: overWrite ? 'true' : 'false',
       },
     };
@@ -96,7 +95,7 @@ export class S3Service {
       };
 
       return this.s3Client.send(new HeadObjectCommand(command));
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(error);
       throw Error(error?.message || 'head object failed');
     }
@@ -128,7 +127,7 @@ export class S3Service {
   }
 
   async getMultiPartUploadId(
-    parentFolder: Folder,
+    parentFolder: Folder | null | undefined,
     details: RequiredMetaDataForFileUpload,
     bucketName: string = process.env.AWS_BUCKET_NAME,
   ) {
@@ -142,11 +141,11 @@ export class S3Service {
       Metadata: {
         createdbyemail: encodeURIComponent(createdBy.email),
         filesystempath: encodeURIComponent(
-          `${parentFolder.fileSystemPath}${fileName}`,
+          `${parentFolder?.fileSystemPath || '/'}${fileName}`,
         ),
         createdbyid: createdBy.id,
         fileid: fileId,
-        parentid: parentFolder.id,
+        parentid: parentFolder?.id || null,
         overwrite: overWrite ? 'true' : 'false',
         needsExtraction: details.isZippedFolder ? 'true' : 'false',
       },

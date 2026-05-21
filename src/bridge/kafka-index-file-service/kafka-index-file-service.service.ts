@@ -11,6 +11,8 @@ import { pipeline } from 'stream/promises';
 import { EmbeddingService } from '../embedding/embedding.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { S3FileMetaData } from 'types/file-metadata';
+import * as chrono from 'chrono-node';
+import { DocumentMetadata } from 'types/opensearch-index';
 
 @Injectable()
 export class KafkaIndexFileServiceService {
@@ -41,27 +43,62 @@ export class KafkaIndexFileServiceService {
     }
   }
 
-  async storeSementicMetaDataToDB(
+  async storeSemanticAnchor(
     textChunk: string,
     s3FileMeta: S3FileMetaData,
+    chunkIndex: number,
+    embedding: number[],
   ) {
     this.embeddingService
-      .generateJSONBDescriptionFromPrologue(textChunk)
+      .generateJSONBDescriptionFromPrologue(textChunk, true)
       .then((res: any) => {
-        this.logger.log(
-          '>>>>>>>>>>>prisma handler response block',
-          JSON.parse(res.message.content),
+        const parsedjson = JSON.parse(res.message.content) as DocumentMetadata;
+
+        this.logger.log('The parsed json from AI is >>>>', parsedjson);
+        parsedjson.all_relevant_dates = parsedjson.all_relevant_dates.map(
+          (str) => this.cleanDateToISO(str),
         );
-        return this.prisma.fileMetadata.create({
+        parsedjson.most_relevant_date = parsedjson.most_relevant_date
+          ? this.cleanDateToISO(parsedjson.most_relevant_date)
+          : null;
+        parsedjson.dates_and_times = parsedjson.dates_and_times.map((obj) => ({
+          ...obj,
+          date: this.cleanDateToISO(obj.date),
+        }));
+
+        const dbPromise = this.prisma.fileMetadata.create({
           data: {
             fileId: s3FileMeta.fileid,
-            semanticMetadata: res.message.content,
+            chunkIndex,
+            semanticMetadata: JSON.stringify({
+              ...parsedjson,
+              embedding,
+            }),
           },
         });
+
+        const indexingPromise = this.oss.indexOverviewDocument({
+          id: `${s3FileMeta.fileid}`,
+          ...parsedjson,
+          embedding,
+        });
+
+        return Promise.allSettled([dbPromise, indexingPromise]);
       })
-      .then((dbRes) => {
-        this.logger.log('db response after storing metdata :---', dbRes);
+      .then(([dbRes, ossres]) => {
+        this.logger.log('db response after storing metdata :---', dbRes.status);
+        this.logger.log(
+          'opensearch response after storing metdata :---',
+          ossres.status,
+        );
       });
+  }
+
+  cleanDateToISO(dateString: string) {
+    this.logger.log(`ate fixed from ${dateString}`);
+    const date = chrono.parseDate(dateString).toISOString();
+    this.logger.log(`date fixed from ${dateString} to ${date}`);
+    return date;
   }
 
   async initializeConsumer() {
@@ -105,30 +142,41 @@ export class KafkaIndexFileServiceService {
           );
           await pipeline(chunkTextStream, async (stream) => {
             let index = -1;
-            let overviewChunk = '';
+            let overviewChunksObj: { embedding: number[]; text: string } = {
+              embedding: [],
+              text: '',
+            };
+
             for await (const chunk of stream) {
               heartbeat();
               index++;
               const textChunk = chunk.toString();
+              // initial context
+
+              const chunkEmbedding =
+                await this.embeddingService.generateEmbeddings(textChunk);
+
               if (index <= 2) {
-                overviewChunk += textChunk;
-                if (index === 2) {
-                  // call generate the json
-                  this.storeSementicMetaDataToDB(overviewChunk, fileMeta);
-                }
+                overviewChunksObj.text += textChunk;
               }
 
-              const embedding =
-                await this.embeddingService.generateEmbeddings(textChunk);
+              if (index === 2) {
+                // call generate the json
+                const anchorEmbeddings =
+                  await this.embeddingService.generateEmbeddings(
+                    overviewChunksObj.text,
+                  );
+                overviewChunksObj.embedding = anchorEmbeddings;
+              }
 
               this.logger.log(
                 `Indexing chunk ${index} for file ${fileMeta.fileid}`,
               );
 
-              await this.oss.indexDocument({
+              await this.oss.indexChunkDocument({
                 id: `${fileMeta.fileid}-chunk-${index}`,
                 createdById: fileMeta.createdbyid,
-                embedding,
+                embedding: chunkEmbedding,
                 text: textChunk,
                 fileSystemPath: decodeURIComponent(fileMeta.filesystempath),
                 s3Key: parsedMessage.s3Key,
@@ -137,13 +185,8 @@ export class KafkaIndexFileServiceService {
               });
             }
 
-            // in case document was fully consumable (had length less than minimum chunksize)
-            // then the above condition of taking first 2 chunks failed and meta never created
-            // create jsonb meta in postgres as index never reached 2 after all for of iterations
-            if (index < 2) {
-              heartbeat();
-              await this.storeSementicMetaDataToDB(overviewChunk, fileMeta);
-            }
+            const { text, embedding } = overviewChunksObj;
+            await this.storeSemanticAnchor(text, fileMeta, 0, embedding);
           });
         }
 
@@ -151,7 +194,7 @@ export class KafkaIndexFileServiceService {
           {
             topic: KAFKA_TOPIC_NAMES.FILE_UPLOADED,
             partition,
-            offset: (Number(message.offset) + 1).toString(),
+            offset: (BigInt(message.offset) + BigInt(1)).toString(),
           },
         ]);
       },

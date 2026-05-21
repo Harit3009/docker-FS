@@ -19,7 +19,8 @@ export class CursorWithId {
 
 export class GetPutSignedURLBodyDto {
   @IsString()
-  parentFolderId: string;
+  @IsOptional()
+  parentFolderId?: string;
   @IsString()
   filename: string;
   @IsString()
@@ -38,6 +39,7 @@ export class GetMultipartURLsBodyDto {
   @IsString()
   s3Key: string;
   @IsString()
+  @IsOptional()
   parentFolderId: string;
 }
 
@@ -59,6 +61,7 @@ export class CompleteMultipartUploadDto {
   s3Key: string;
 
   @IsString()
+  @IsOptional()
   parentFolderId: string;
 
   @IsArray()
@@ -69,13 +72,15 @@ export class CompleteMultipartUploadDto {
 
 export class CreateFolderBodyDto {
   @IsString()
-  parentFolderId: string;
+  @IsOptional()
+  parentFolderId?: string;
   @IsString()
   folderName: string;
 }
 
 export class ListRecordDto {
   @IsUUID()
+  @IsOptional()
   parentFolderId: string;
 
   @Type(() => Number)
@@ -91,6 +96,7 @@ export class ListRecordDto {
 
 export class RenameRecordDTO {
   @IsUUID()
+  @IsOptional()
   folderToRenameId: string;
 
   @IsString()
@@ -127,7 +133,8 @@ export class GetSignedUrlParamsDTO {
 
 export class InitiateFolderUploadDTO {
   @IsUUID()
-  parentFolderId: string;
+  @IsOptional()
+  parentFolderId?: string;
   @IsString()
   folderName: string;
   @IsBoolean()

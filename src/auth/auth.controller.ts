@@ -38,7 +38,6 @@ export class AuthController {
       name: user.name,
       createdAt: user.createdAt,
       profilePic: user.profilePic,
-      rootFolderId: user.rootFolderId,
     };
   }
 
