@@ -118,14 +118,16 @@ services:
     ports:
       - '4566:4566'
     environment:
-      - SERVICES=s3,sqs,sns
+      - SERVICES=s3,sqs,sns,lambda,logs
       - DEBUG=1
       - DOCKER_HOST=unix:///var/run/docker.sock
       - PERSISTENCE=1
+      - LAMBDA_DOCKER_NETWORK=fs_network # CRITICAL: Allows Lambda to talk to your Kafka container
     volumes:
       - '/var/run/docker.sock:/var/run/docker.sock'
       - './localstack-init.sh:/etc/localstack/init/ready.d/init.sh'
-      - /Volumes/ssd/fs_project_data/localstack:/var/lib/localstack
+      - '/Volumes/ssd/fs_project_data/localstack:/var/lib/localstack'
+      - './lambda-dist:/opt/lambda-build' # Added: Mounts the folder containing function.zip
     networks:
       - fs_network
     user: '0:0'
@@ -241,6 +243,7 @@ services:
 
 networks:
   fs_network:
+    name: fs_network
     driver: bridge
 
 volumes:

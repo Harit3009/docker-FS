@@ -16,10 +16,12 @@ export class AuthService {
       createdUser = await tx.user.create({
         data: user,
       });
+
       const rootFolder = await this.prismaService.createRootFolderForUser(
         createdUser,
         tx,
       );
+
       await tx.user.update({
         where: {
           id: createdUser.id,
