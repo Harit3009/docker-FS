@@ -9,10 +9,10 @@ A cloud-based file storage system built with NestJS that provides a Google Drive
 - **Multipart Upload**: Support for large file uploads using S3 multipart upload
 - **Folder Upload**: Upload entire folders as zip archives with automatic extraction
 - **Document Search**: Semantic search powered by OpenSearch with AI embeddings
-- **AI Chat**: Chat with your documents using AI (Google Gemini, OpenAI, Groq)
+- **AI Chat**: Chat with your documents using AI (developed with local AI ollama)
 - **Real-time Processing**: Event-driven architecture using Kafka for file processing
 - **Trash Management**: Soft delete functionality with scheduled cleanup
-- **Document Indexing**: Automatic text extraction and indexing from PDFs, DOCX, CSV files
+- **Document Indexing**: Automatic text extraction and indexing from PDFs with backpressure handling. (DOCX, CSV files in progress)
 
 ## 🏗️ Architecture
 
@@ -23,7 +23,7 @@ The application uses a microservices-inspired architecture with the following co
 - **S3 (LocalStack)**: Object storage for file content
 - **Kafka**: Message broker for asynchronous file processing
 - **OpenSearch**: Full-text and semantic search engine
-- **Google Gemini/OpenAI**: AI services for embeddings and chat
+- **Ollama with Gemma4**: AI services for embeddings and chat
 
 ### Event-Driven Processing
 
@@ -45,9 +45,9 @@ Files uploaded to S3 trigger a series of Kafka-based processing jobs:
 - **Authentication**: Passport.js with JWT and Google OAuth
 
 ### AI/ML
-- **Embeddings**: Google Gemini API
-- **Chat**: Google Gemini / OpenAI / Groq SDK
-- **Framework**: LangChain for AI workflows
+- **Embeddings**: Qwen2-1.5B-embedding model (1536 dimensions)
+- **Chat**: tested locally with Gemma4 26b MOE
+- **Framework**: LangChain/Langgraph for AI workflows
 
 ### DevOps
 - **Containerization**: Docker & Docker Compose
@@ -61,7 +61,6 @@ Files uploaded to S3 trigger a series of Kafka-based processing jobs:
 - Docker & Docker Compose
 - npm or yarn
 - Google Cloud Platform account (for OAuth)
-- API keys for AI services (Google Gemini, OpenAI, or Groq)
 
 ## 🚀 Getting Started
 
@@ -108,15 +107,6 @@ OPENSEARCH_NODE=http://localhost:9200
 OPENSEARCH_USERNAME=admin
 OPENSEARCH_PASSWORD=StrongPassword123  # Change this in production!
 
-# AI Services (choose one or configure multiple)
-# Google Gemini
-GOOGLE_GEMINI_API_KEY=your_gemini_api_key
-
-# OpenAI
-OPENAI_API_KEY=your_openai_api_key
-
-# Groq
-GROQ_API_KEY=your_groq_api_key
 ```
 
 ### 3. Start Infrastructure Services
@@ -296,33 +286,4 @@ docker build -t docker-fs .
 docker-compose up -d
 ```
 
-### Environment Variables for Production
 
-Ensure you update the following for production:
-- Use production database credentials
-- Use real AWS S3 instead of LocalStack
-- Configure production Kafka cluster
-- Set strong JWT secret
-- Configure proper CORS origins
-- Use production AI API keys
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📝 License
-
-This project is licensed under the UNLICENSED license.
-
-## 🙏 Acknowledgments
-
-Built with:
-- [NestJS](https://nestjs.com/) - Progressive Node.js framework
-- [Prisma](https://www.prisma.io/) - Next-generation ORM
-- [Apache Kafka](https://kafka.apache.org/) - Distributed event streaming
-- [OpenSearch](https://opensearch.org/) - Search and analytics engine
-- [LocalStack](https://localstack.cloud/) - Local AWS cloud stack
