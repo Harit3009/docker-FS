@@ -57,7 +57,7 @@ awslocal lambda create-function \
   --handler index.handler \
   --memory-size 512 \
   --timeout 900 \
-  --zip-file fileb:///opt/lambda-build/function.zip # <-- Back to the zip file
+  --zip-file fileb:///opt/lambda-build/function.zip
 
 echo "Mapping SQS queue to trigger Lambda..."
 awslocal lambda create-event-source-mapping \

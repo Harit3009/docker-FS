@@ -12,6 +12,7 @@ import { PdfParserService } from './pdf-parser/pdf-parser.service';
 import { EmbeddingService } from './embedding/embedding.service';
 import { HttpModule } from '@nestjs/axios';
 import { AiRetrievalService } from './ai-retrieval/ai-retrieval.service';
+import { LangraphChatService } from './ai-retrieval/langraph-chat.service';
 
 @Module({
   providers: [
@@ -25,6 +26,7 @@ import { AiRetrievalService } from './ai-retrieval/ai-retrieval.service';
     PdfParserService,
     EmbeddingService,
     AiRetrievalService,
+    LangraphChatService,
   ],
   exports: [
     KafkaCreateFileConsumerService,

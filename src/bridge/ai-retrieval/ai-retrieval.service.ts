@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { EmbeddingService } from '../embedding/embedding.service';
+import { EmbeddingService, MessageType } from '../embedding/embedding.service';
 import { OpensearchService } from '../open-search/open-search.service';
 import { OpensearchIndexableDocument } from 'types/opensearch-index';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { getAnswerFromDocPrompt } from './prompts';
 
 @Injectable()
 export class AiRetrievalService {
@@ -63,6 +64,23 @@ export class AiRetrievalService {
 
     this.logger.log('xml is here >>>>>>>>', xmlString);
 
-    return this.embeddingService.chatFromSearchedDocs(query, xmlString);
+    return this.chatFromSearchedDocs(query, xmlString);
+  }
+
+  async chatFromSearchedDocs(query: string, docsXML: string) {
+    const messages: MessageType[] = [
+      {
+        role: 'system',
+        content: getAnswerFromDocPrompt(docsXML),
+      },
+      {
+        role: 'user',
+        content: query,
+      },
+    ];
+    return this.embeddingService.passConversationToAI(messages, {
+      task: 'large',
+      think: false,
+    });
   }
 }

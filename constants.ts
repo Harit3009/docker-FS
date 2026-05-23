@@ -19,3 +19,15 @@ export const KAFKA_CONSUMER_NAMES = {
   VECTOR_INDEXING_CONSUMER:
     'Consumer.Topic.file-uploaded.message.vector-index-consumer',
 } as const;
+
+export const CATEGORIES = [
+  'finance_and_commerce',
+  'medical_and_health',
+  'fitness_and_diet',
+  'professional_and_career',
+  'technology_and_hardware',
+  'housing_and_utilities',
+  'vehicles_and_transport',
+  'education_and_research',
+  'unknown_or_other',
+] as const;
