@@ -16,6 +16,8 @@ import {
 import { DocumentMetricService } from './document-metric/document-metric.service';
 import { UserGroupsModule } from './user-groups/user-groups.module';
 import { HttpModule } from '@nestjs/axios';
+import * as http from 'http';
+import * as https from 'https';
 
 @Module({
   imports: [
@@ -29,7 +31,11 @@ import { HttpModule } from '@nestjs/axios';
     ScheduleModule.forRoot(),
     PrometheusModule.register(),
     UserGroupsModule,
-    HttpModule,
+    HttpModule.register({
+      httpAgent: new http.Agent({ keepAlive: true }),
+      httpsAgent: new https.Agent({ keepAlive: true }),
+      timeout: 60000,
+    }),
   ],
   controllers: [AppController],
   providers: [

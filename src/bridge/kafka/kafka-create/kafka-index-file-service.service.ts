@@ -1,14 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { KafkaService } from '../kafka/kafka.service';
+import { KafkaService } from '../kafka.service';
 import { Consumer } from 'kafkajs';
-import { KAFKA_CONSUMER_NAMES, KAFKA_TOPIC_NAMES } from '../../../constants';
+import { KAFKA_CONSUMER_NAMES, KAFKA_TOPIC_NAMES } from '../../../../constants';
 
 import { S3Service } from 'src/s3-module/s3-service.service';
 import { FileUploadMessage } from 'types/kafka-messages';
-import { OpensearchService } from '../open-search/open-search.service';
-import { PdfParserService } from '../pdf-parser/pdf-parser.service';
+import { OpensearchService } from '../../open-search/open-search.service';
+import { PdfParserService } from '../../pdf-parser/pdf-parser.service';
 import { pipeline } from 'stream/promises';
-import { EmbeddingService } from '../embedding/embedding.service';
+import { EmbeddingService } from '../../embedding/embedding.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { S3FileMetaData } from 'types/file-metadata';
 import * as chrono from 'chrono-node';
@@ -29,6 +29,8 @@ export class KafkaIndexFileServiceService {
   ) {
     this.consumer = this.kafkaOrigin.kafka.consumer({
       groupId: KAFKA_CONSUMER_NAMES.VECTOR_INDEXING_CONSUMER,
+      sessionTimeout: 60000,
+      heartbeatInterval: 20000,
     });
 
     if (this.kafkaOrigin.isKafkaConnected) {
@@ -48,13 +50,18 @@ export class KafkaIndexFileServiceService {
     s3FileMeta: S3FileMetaData,
     chunkIndex: number,
     embedding: number[],
+    heartbeat?: Function,
   ) {
-    this.embeddingService
+    const heartbeatTimeOut = setTimeout(() => {
+      heartbeat();
+    }, 3000);
+    return this.embeddingService
       .generateJSONBDescriptionFromPrologue(textChunk, true)
       .then((res: any) => {
         const parsedjson = JSON.parse(res.message.content) as DocumentMetadata;
 
-        this.logger.log('The parsed json from AI is >>>>', parsedjson);
+        this.logger.log('The parsed json from AI is >>>>');
+        this.logger.log(parsedjson);
         parsedjson.all_relevant_dates = parsedjson.all_relevant_dates.map(
           (str) => this.cleanDateToISO(str),
         );
@@ -91,6 +98,13 @@ export class KafkaIndexFileServiceService {
           'opensearch response after storing metdata :---',
           ossres.status,
         );
+        clearTimeout(heartbeatTimeOut);
+      })
+      .catch((err) => {
+        this.logger.debug('error while generating sementic anchor');
+        this.logger.debug(err);
+        clearTimeout(heartbeatTimeOut);
+        throw err;
       });
   }
 
@@ -107,7 +121,6 @@ export class KafkaIndexFileServiceService {
     await this.consumer.connect();
     await this.consumer.subscribe({
       topics: [KAFKA_TOPIC_NAMES.FILE_UPLOADED],
-      fromBeginning: true,
     });
 
     await this.consumer.run({
@@ -186,7 +199,14 @@ export class KafkaIndexFileServiceService {
             }
 
             const { text, embedding } = overviewChunksObj;
-            await this.storeSemanticAnchor(text, fileMeta, 0, embedding);
+            heartbeat();
+            await this.storeSemanticAnchor(
+              text,
+              fileMeta,
+              0,
+              embedding,
+              heartbeat,
+            );
           });
         }
 

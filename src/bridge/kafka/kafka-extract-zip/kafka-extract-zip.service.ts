@@ -1,8 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { S3Service } from 'src/s3-module/s3-service.service';
-import { KafkaService } from '../kafka/kafka.service';
 import { Consumer } from 'kafkajs';
-import { KAFKA_TOPIC_NAMES } from '../../../constants';
+import { KAFKA_TOPIC_NAMES } from '../../../../constants';
 import { Parse } from 'unzipper';
 import { S3FileMetaData } from 'types/file-metadata';
 import { Transform } from 'stream';
@@ -12,6 +11,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { v4 as uuidv4 } from 'uuid';
 import mime from 'mime-types';
 import { Folder } from '@prisma/client';
+import { KafkaService } from '../kafka.service';
 
 @Injectable()
 export class KafkaExtractZipService {

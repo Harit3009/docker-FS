@@ -25,7 +25,7 @@ export class JwtVerifierService extends PassportStrategy(
     }
     const activeSpan = trace.getActiveSpan();
     if (activeSpan) {
-      activeSpan.setAttribute('app.tenant.id', user.id);
+      activeSpan.setAttribute('app.tenant.id', user.email);
     }
     return user;
   }

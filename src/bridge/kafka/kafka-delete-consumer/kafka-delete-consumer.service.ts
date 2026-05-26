@@ -2,8 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Folder } from '@prisma/client';
 import { Consumer } from 'kafkajs';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { KafkaService } from '../kafka/kafka.service';
-import { KAFKA_CONSUMER_NAMES, KAFKA_TOPIC_NAMES } from '../../../constants';
+import { KAFKA_CONSUMER_NAMES, KAFKA_TOPIC_NAMES } from '../../../../constants';
+import { KafkaService } from '../kafka.service';
 
 @Injectable()
 export class KafkaDeleteConsumerService {

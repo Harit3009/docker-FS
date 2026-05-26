@@ -35,8 +35,8 @@ import {
   SearchDocumentsDto,
 } from './Dto';
 import { plainToInstance } from 'class-transformer';
-import { KafkaDeleteConsumerService } from 'src/bridge/kafka-delete-consumer/kafka-delete-consumer.service';
 import { AiRetrievalService } from 'src/bridge/ai-retrieval/ai-retrieval.service';
+import { KafkaDeleteConsumerService } from 'src/bridge/kafka/kafka-delete-consumer/kafka-delete-consumer.service';
 
 @UseGuards(AuthGuard([PASSPORT_STRATEGIES.INCOMING_JWT_VERIFICATION]))
 @Controller('file-system')
@@ -484,4 +484,7 @@ export class FileSystemController {
     const hits = await this.chatService.answerFromDocument(search, user.id);
     return { hits };
   }
+
+  @Post('chat-langraph')
+  async doSessionChat(@Body() body, @ReqUser() user: User) {}
 }

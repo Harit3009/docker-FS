@@ -150,3 +150,12 @@ export class SearchDocumentsDto {
   @IsString()
   search: string;
 }
+
+export class LangraphChatDTO {
+  @IsString()
+  @IsOptional()
+  filename?: string;
+
+  @IsString()
+  query: string;
+}

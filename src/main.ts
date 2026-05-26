@@ -3,12 +3,15 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { GlobalExceptionFilter } from './global-exception';
+import { winstonLogger } from './logger/winston-logger';
 
 async function bootstrap() {
   BigInt.prototype['toJSON'] = function () {
     return this.toString();
   };
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    logger: winstonLogger,
+  });
   app.enableCors();
   app.useGlobalPipes(
     new ValidationPipe({

@@ -5,8 +5,8 @@ import { Logger } from '@nestjs/common';
 import { S3Service } from 'src/s3-module/s3-service.service';
 import { S3FileMetaData } from 'types/file-metadata';
 import { Prisma } from '@prisma/client';
-import { KafkaService } from '../kafka/kafka.service';
-import { KAFKA_CONSUMER_NAMES, KAFKA_TOPIC_NAMES } from './../../../constants';
+import { KafkaService } from '../kafka.service';
+import { KAFKA_CONSUMER_NAMES, KAFKA_TOPIC_NAMES } from '../../../../constants';
 import { FileUploadMessage } from 'types/kafka-messages';
 
 @Injectable()
@@ -15,7 +15,7 @@ export class KafkaCreateFileConsumerService
 {
   private dbCreateConsumer: Consumer;
 
-  private readonly logger = new Logger('KafkaCreateFileConsumerService');
+  private readonly logger = new Logger(KafkaCreateFileConsumerService.name);
 
   constructor(
     private prismaService: PrismaService,

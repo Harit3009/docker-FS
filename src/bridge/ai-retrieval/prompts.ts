@@ -49,17 +49,17 @@ JSON:-
         "context": "A 1-to-3 word description of their specific role in this document (e.g., 'Attending Physician', 'Telecom Provider', 'Cloud Host')"
       }
     ],
-    "locations": ["List of specific places"],
-    "dates_and_times": [
-      {
-        "date": "1990-03-25T12:42:31",
-        "context": "Description of what this date represents"
-      }
-    ],
-    "all_relevant_dates": ["List of all formatted date strings found"],
-    "most_relevant_date": "The single most important document date for indexing",
-    "organizations": ["Companies, institutions, or groups"]
   },
+  "locations": ["List of specific places"],
+  "dates_and_times": [
+    {
+      "date": "1990-03-25T12:42:31",
+      "context": "Description of what this date represents"
+    }
+  ],
+  "all_relevant_dates": ["List of all formatted date strings found"],
+  "most_relevant_date": "The single most important document date for indexing",
+  "organizations": ["Companies, institutions, or groups"]
   "keywords": ["3 to 5 searchable tags"],
   "is_technical_or_academic": boolean
 }

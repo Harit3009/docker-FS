@@ -20,7 +20,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "dev:lambda": "concurrently \"npx ts-node ./src/lambdas/build.js\"",
     "localstack:logs": "docker logs fs_localstack --tail 100",
-    "insecure:dev": "NODE_TLS_REJECT_UNAUTHORIZED=0 nest start --watch",
+    "insecure:dev": "NODE_TLS_REJECT_UNAUTHORIZED=0 nest start --watch -e 'node -r dotenv/config'",
     "db:ensure-indexes": "ts-node scripts/prisma.ensure-indexes.ts",
     "migrate:dev": "npx prisma migrate dev && npm run db:ensure-indexes && npx prisma generate",
     "reload:prometheus": "curl -X POST http://localhost:9090/-/reload"
@@ -65,6 +65,7 @@
     "luxon": "^3.7.2",
     "mammoth": "^1.11.0",
     "mime-types": "^3.0.2",
+    "nest-winston": "^1.10.2",
     "openai": "^6.16.0",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
@@ -78,6 +79,8 @@
     "unzip-stream": "^0.3.4",
     "unzipper": "^0.12.3",
     "uuid": "^13.0.0",
+    "winston": "^3.19.0",
+    "winston-loki": "^6.1.4",
     "zod": "^4.4.3"
   },
   "devDependencies": {

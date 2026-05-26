@@ -17,7 +17,6 @@ export class AuthService {
         data: user,
       });
     });
-
     return createdUser;
   }
 
