@@ -2,8 +2,9 @@
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { IncomingMessage } from 'http';
+import { TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base';
 import { ExpressLayerType } from '@opentelemetry/instrumentation-express';
+import { IncomingMessage } from 'http';
 
 const enableTracing = process.env.ENABLE_TRACING === 'true';
 if (enableTracing) {
@@ -46,6 +47,7 @@ if (enableTracing) {
         },
       }),
     ],
+    sampler: new TraceIdRatioBasedSampler(0.01),
   });
 
   sdk.start();

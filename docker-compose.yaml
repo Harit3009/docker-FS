@@ -18,6 +18,7 @@ services:
                -c 'checkpoint_timeout=15min' 
                -c 'checkpoint_completion_target=0.9' 
                -c 'wal_writer_delay=200ms'
+               -c 'max_connections=150'
     logging:
       driver: 'json-file'
       options:
@@ -142,7 +143,36 @@ services:
       - opensearch
 
   # ----------------------------------------------------------------
-  # 4. LOCALSTACK
+  # 4. HIGH-PERFORMANCE STORAGE ENGINE: MINIO
+  # ----------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: fs_minio
+    ports:
+      - '9000:9000' # S3 API endpoint
+      - '9001:9001' # Web Console UI endpoint
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password
+      # 🎯 CHANGE: Removed the MINIO_NOTIFY_KAFKA settings entirely.
+      # Your standalone node script handles listening and routing now.
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    logging:
+      driver: 'json-file'
+      options:
+        mode: 'non-blocking'
+        max-buffer-size: '4m'
+        max-size: '10m'
+        max-file: '3'
+    networks:
+      - fs_network
+    depends_on:
+      - kafka
+
+  # ----------------------------------------------------------------
+  # 5. LOCALSTACK
   # ----------------------------------------------------------------
   localstack:
     image: localstack/localstack
@@ -174,7 +204,7 @@ services:
     user: '0:0'
 
   # ================================================================
-  # 5. OBSERVABILITY & EXPORTERS
+  # 6. OBSERVABILITY & EXPORTERS
   # ================================================================
 
   jaeger:
@@ -302,3 +332,4 @@ volumes:
   postgres_data:
   opensearch_data:
   kafka_data:
+  minio_data: # Added named volume tracking for MinIO

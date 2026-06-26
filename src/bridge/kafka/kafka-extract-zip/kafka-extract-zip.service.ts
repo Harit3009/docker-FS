@@ -16,7 +16,7 @@ import { KafkaService } from '../kafka.service';
 @Injectable()
 export class KafkaExtractZipService {
   private consumer: Consumer;
-  private readonly logger = new Logger('KafkaExtractZipService');
+  private readonly logger = new Logger(KafkaExtractZipService.name);
   constructor(
     private s3: S3Service,
     private kafkaService: KafkaService,

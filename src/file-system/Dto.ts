@@ -114,6 +114,8 @@ export class ListRecordResponseDto extends WithBigIntSize {
   id: string;
   @IsString()
   fileSystemPath: string;
+  @IsString()
+  updatedAt: string;
 }
 
 export class DeleteFolderRequestParamsDto {

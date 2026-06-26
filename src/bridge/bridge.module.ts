@@ -15,6 +15,7 @@ import * as http from 'http';
 import * as https from 'https';
 import { KafkaDeleteConsumerService } from './kafka/kafka-delete-consumer/kafka-delete-consumer.service';
 import { KafkaExtractZipService } from './kafka/kafka-extract-zip/kafka-extract-zip.service';
+import { IndexMarkDeleteService } from './kafka/kafka-delete-consumer/index-mark-delete.service';
 
 @Module({
   providers: [
@@ -29,6 +30,7 @@ import { KafkaExtractZipService } from './kafka/kafka-extract-zip/kafka-extract-
     EmbeddingService,
     AiRetrievalService,
     LangraphChatService,
+    IndexMarkDeleteService,
   ],
   exports: [
     KafkaCreateFileConsumerService,

@@ -50,6 +50,7 @@ export class KafkaDeleteConsumerService {
         topic: KAFKA_TOPIC_NAMES.MARK_CHILDREN_FOR_DELETION,
       });
       this.markChildrenForDeleteConsumer.run({
+        autoCommit: false,
         eachMessage: async ({ message, topic, heartbeat, partition }) => {
           try {
             const folder = JSON.parse(message.value.toString()) as Folder;
@@ -86,7 +87,6 @@ export class KafkaDeleteConsumerService {
             });
           }
         },
-        autoCommit: false,
       });
     } catch (error) {
       this.logger.error(

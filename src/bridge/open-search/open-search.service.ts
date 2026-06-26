@@ -132,7 +132,10 @@ export class OpensearchService implements OnModuleInit {
     }
   }
 
-  async markDocumentAsDeletedByS3Key(filePathPrefix: string) {
+  async markDocumentAsDeletedByS3Key(
+    filePathPrefix: string,
+    createdById: string,
+  ) {
     const response = await this.client.updateByQuery({
       index: this.INDEX_NAME,
       conflicts: 'proceed',
@@ -147,8 +150,13 @@ export class OpensearchService implements OnModuleInit {
                 },
               },
               {
-                match: {
+                term: {
                   isDeleted: false,
+                },
+              },
+              {
+                term: {
+                  createdById,
                 },
               },
             ],

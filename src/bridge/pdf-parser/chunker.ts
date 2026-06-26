@@ -36,17 +36,12 @@ export class StreamingChunker extends Transform {
   private processChunk(isFinal = false) {
     if (!isFinal && this.buffer.length < this.chunkSize) return;
 
-    // 1. Find the End of Current Chunk (Backward Look)
-    // We try to cut exactly at chunkSize, but snap backward to a sentence end
     let cutIndex = Math.min(this.chunkSize, this.buffer.length);
 
-    // Only search backwards if we aren't forced to flush everything (isFinal)
-    // and if we have enough buffer to look back safely.
     if (!isFinal) {
       cutIndex = this.findBestCutIndex(cutIndex);
     }
 
-    // 2. Extract the Current Chunk
     const chunkText = this.buffer.slice(0, cutIndex).trim();
     if (chunkText.length > 0) {
       this.push(chunkText);

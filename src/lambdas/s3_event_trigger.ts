@@ -20,9 +20,9 @@ const producer = kafka.producer();
 let isProducerConnected = false;
 
 export const handler: SQSHandler = async (event: SQSEvent) => {
-  console.log(`Processing >> ${event.Records.length} SQS messages...`);
-  console.log(`broker is >> ${process.env.LAMBDA_KAFKA_BROKERS},
-     clientId is >> ${process.env.KAFKA_CLIENT_ID}`);
+  // console.log(`Processing >> ${event.Records.length} SQS messages...`);
+  // console.log(`broker is >> ${process.env.LAMBDA_KAFKA_BROKERS},
+  //    clientId is >> ${process.env.KAFKA_CLIENT_ID}`);
 
   try {
     // 2. Ensure Kafka is connected before processing

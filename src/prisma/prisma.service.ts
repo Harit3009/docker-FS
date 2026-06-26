@@ -1,7 +1,13 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  OnModuleInit,
+  OnModuleDestroy,
+  Logger,
+} from '@nestjs/common';
 import { Folder, Prisma, PrismaClient, User } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { ConfigService } from '@nestjs/config';
 
 export type TransactionClient = Omit<
   PrismaClient<Prisma.PrismaClientOptions, Prisma.LogLevel, any>,
@@ -54,11 +60,38 @@ export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
-  constructor() {
+  private logger = new Logger(PrismaService.name);
+
+  constructor(private config: ConfigService) {
     const connectionString = process.env.DATABASE_URL;
-    const pool = new Pool({ connectionString });
+    const workerId = process.env.NODE_APP_INSTANCE || '0';
+    const maxConnectionsForCluster = 120;
+    const totalNodesPerCluster = parseInt(process.env.TOTAL_PM2_NODES, 10) || 1;
+    const connections = Math.floor(
+      maxConnectionsForCluster / totalNodesPerCluster,
+    );
+
+    const pool = new Pool({
+      connectionString,
+      max: connections,
+      application_name: `nestjs_worker_${workerId}`,
+    });
     const adapter = new PrismaPg(pool);
-    super({ adapter });
+    super({
+      adapter,
+      log: [
+        { emit: 'event', level: 'query' },
+        { emit: 'stdout', level: 'error' },
+        { emit: 'stdout', level: 'warn' },
+      ],
+    });
+
+    this.$on('query', (e) => {
+      // console.log('Query:', e.query);
+      // console.log('Params:', e.params);
+      // console.log('Duration:', e.duration, 'ms');
+    });
+    this.logger.log(`Max Connections : ${connections}`);
   }
 
   private _extendedClient: ExtendedClient;
@@ -129,7 +162,7 @@ export class PrismaService
       )
 
       UPDATE "Folder" target
-      SET "size" = target."size" + ${deltaSize}
+      SET "size" = target."size" + ${deltaSize}, "updatedAt" = NOW()
       FROM folderSubTree f
       WHERE target.id = f.id`;
   }

@@ -2,6 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { logLevel } from 'kafkajs';
 import { Kafka, Producer } from 'kafkajs';
+import { CompressionCodecs, CompressionTypes } from 'kafkajs';
+import snappyCodec from 'kafkajs-snappy';
+
+// 🎯 Register the Snappy codec to handle the decompression algorithm
+CompressionCodecs[CompressionTypes.Snappy] = snappyCodec;
 
 // Custom Logger Function
 const PrettyLogCreator = (logger: Logger) => {

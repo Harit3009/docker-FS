@@ -45,9 +45,79 @@ const partialIndexes: IndexObject[] = [
     // FIX: Unique name distinct from File
     command: `
       CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "partial_unique_folder_active_path" 
-      ON "Folder" ("createdById", "fileSystemPath") 
+      ON "Folder" ("createdById", "fileSystemPath","id") 
       WHERE "isDeleted" = false
     `,
+  },
+  // 4. updatedAt index for traversal via parentId (Folder)
+  {
+    name: 'pi_parentid_updatedat_folder',
+    description: '',
+    command: `CREATE INDEX CONCURRENTLY pi_parentid_updatedat_folder 
+    ON "Folder" ("createdById","parentId","updatedAt" DESC,"id")
+    WHERE "isDeleted" = false;`,
+  },
+
+  // 4. updatedAt index for traversal via parentId (File)
+  {
+    name: 'pi_parentid_updatedat_file',
+    description: '',
+    command: `CREATE INDEX CONCURRENTLY pi_parentid_updatedat_file 
+    ON "File" ("createdById","parentId","updatedAt" DESC,"id")
+    WHERE "isDeleted" = false;`,
+  },
+
+  // 5. root folder performance updatedAt index (Folder)
+  {
+    name: 'pi_root_folder_perf_updatedat_folder',
+    description: 'Index for root folder performance',
+    command: `CREATE INDEX CONCURRENTLY pi_root_folder_perf_updatedat_folder 
+    ON "Folder" ("createdById", "updatedAt" DESC, "id" ASC) 
+    WHERE "parentId" IS NULL AND "isDeleted" = false;`,
+  },
+
+  // 6. root folder performance updatedAt index (File)
+  {
+    name: 'pi_root_folder_perf_updatedat_file',
+    description: 'Index for root folder performance',
+    command: `CREATE INDEX CONCURRENTLY pi_root_folder_perf_updatedat_file 
+    ON "File" ("createdById", "updatedAt" DESC, "id" ASC) 
+    WHERE "parentId" IS NULL AND "isDeleted" = false;`,
+  },
+  // 7. size index for traversal via parentId (Folder)
+  {
+    name: 'pi_parentid_size_folder',
+    description: '',
+    command: `CREATE INDEX CONCURRENTLY pi_parentid_size_folder 
+    ON "Folder" ("createdById","parentId","size" DESC,"id")
+    WHERE "isDeleted" = false;`,
+  },
+
+  // 8. size index for traversal via parentId (File)
+  {
+    name: 'pi_parentid_size_file',
+    description: '',
+    command: `CREATE INDEX CONCURRENTLY pi_parentid_size_file 
+    ON "File" ("createdById","parentId","size" DESC,"id")
+    WHERE "isDeleted" = false;`,
+  },
+
+  // 9. root folder performance size index (Folder)
+  {
+    name: 'pi_root_folder_perf_size_folder',
+    description: 'Index for root folder performance',
+    command: `CREATE INDEX CONCURRENTLY pi_root_folder_perf_size_folder 
+    ON "Folder" ("createdById", "size" DESC, "id" ASC) 
+    WHERE "parentId" IS NULL AND "isDeleted" = false;`,
+  },
+
+  // 10. root folder performance size index (File)
+  {
+    name: 'pi_root_folder_perf_size_file',
+    description: 'Index for root folder performance',
+    command: `CREATE INDEX CONCURRENTLY pi_root_folder_perf_size_file 
+    ON "File" ("createdById", "size" DESC, "id" ASC) 
+    WHERE "parentId" IS NULL AND "isDeleted" = false;`,
   },
 ];
 

@@ -18,6 +18,7 @@ import { UserGroupsModule } from './user-groups/user-groups.module';
 import { HttpModule } from '@nestjs/axios';
 import * as http from 'http';
 import * as https from 'https';
+import * as client from 'prom-client';
 
 @Module({
   imports: [
@@ -29,7 +30,12 @@ import * as https from 'https';
     BridgeModule,
     EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
-    PrometheusModule.register(),
+    PrometheusModule.register({
+      path: '/metrics',
+      defaultMetrics: {
+        enabled: true,
+      },
+    }),
     UserGroupsModule,
     HttpModule.register({
       httpAgent: new http.Agent({ keepAlive: true }),

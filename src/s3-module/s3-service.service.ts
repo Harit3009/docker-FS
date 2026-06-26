@@ -38,10 +38,10 @@ export class S3Service {
   constructor() {
     this.s3Client = new S3Client({
       region: process.env.AWS_REGION || 'us-east-1',
-      endpoint: process.env.AWS_ENDPOINT || 'http://localhost:4566',
+      endpoint: process.env.S3_ENDPOINT || 'http://localhost:9000',
       credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'test',
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'test',
+        accessKeyId: process.env.S3_ACCESSKEY || 'admin',
+        secretAccessKey: process.env.S3_SECRET_KEY || 'password',
       },
       forcePathStyle: true,
       requestChecksumCalculation: 'WHEN_REQUIRED',

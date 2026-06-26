@@ -18,6 +18,8 @@ export const KAFKA_CONSUMER_NAMES = {
     'Consumer.Topic.file-uploaded.message.db-record-create-consumers',
   VECTOR_INDEXING_CONSUMER:
     'Consumer.Topic.file-uploaded.message.vector-index-consumer',
+  MARK_CHILDREN_FOR_DELETE_IN_OSS_CONSUMER:
+    'Consumer.Topic.mark-children-for-delete.message.mark_children_for_delete_in_OSS_consumer',
 } as const;
 
 export const CATEGORIES = [

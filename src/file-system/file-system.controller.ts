@@ -41,7 +41,7 @@ import { KafkaDeleteConsumerService } from 'src/bridge/kafka/kafka-delete-consum
 @UseGuards(AuthGuard([PASSPORT_STRATEGIES.INCOMING_JWT_VERIFICATION]))
 @Controller('file-system')
 export class FileSystemController {
-  private logger = new Logger('file system controller');
+  private logger = new Logger(FileSystemController.name);
   constructor(
     private s3Service: S3Service,
     private prisma: PrismaService,
@@ -55,12 +55,14 @@ export class FileSystemController {
     @ReqUser() user: User,
   ) {
     const { limit = 10, parentFolderId, cursor } = params;
-    const folder = this.prisma.extended.folder.findFirst({
-      where: {
-        id: params.parentFolderId,
-        createdById: user.id,
-      },
-    });
+    let folder: Folder;
+    if (parentFolderId)
+      folder = await this.prisma.extended.folder.findFirst({
+        where: {
+          id: parentFolderId || null,
+          createdById: user.id,
+        },
+      });
 
     if (!folder && parentFolderId) {
       throw new UnauthorizedException('Unauthorised to access folder');
@@ -72,19 +74,30 @@ export class FileSystemController {
         createdById: user.id,
       },
       take: limit + 1,
+      orderBy: [
+        {
+          updatedAt: 'desc',
+        },
+        { id: 'asc' },
+      ],
     };
 
     if (cursor) {
-      args.cursor = { id: cursor };
+      const decodedString = Buffer.from(cursor, 'base64').toString('utf-8');
+      const { id, updatedAt } = JSON.parse(decodedString);
+      args.cursor = { id, updatedAt };
     }
 
     const data = await this.prisma.extended.folder.findMany(args);
     let cursorId;
     const serializedData = plainToInstance(ListRecordResponseDto, data);
     if (serializedData.length === limit + 1) {
-      const { id } = serializedData.pop();
-      cursorId = id;
+      const { id, updatedAt } = serializedData.pop();
+      cursorId = Buffer.from(JSON.stringify({ id, updatedAt })).toString(
+        'base64',
+      );
     }
+
     return {
       data: serializedData,
       cursorId,
@@ -98,12 +111,14 @@ export class FileSystemController {
   ) {
     const { limit = 10, parentFolderId, cursor } = params;
 
-    const folder = this.prisma.extended.folder.findFirst({
-      where: {
-        id: params.parentFolderId,
-        createdById: user.id,
-      },
-    });
+    let folder: Folder;
+    if (parentFolderId)
+      folder = await this.prisma.extended.folder.findFirst({
+        where: {
+          id: parentFolderId || null,
+          createdById: user.id,
+        },
+      });
 
     if (!folder && parentFolderId) {
       throw new UnauthorizedException('No Folder found!');
@@ -114,20 +129,29 @@ export class FileSystemController {
         parentId: parentFolderId ?? null,
       },
       take: limit + 1,
+      orderBy: [
+        {
+          updatedAt: 'desc',
+        },
+        { id: 'asc' },
+      ],
     };
 
     if (cursor) {
-      args.cursor = { id: cursor };
+      const decodedString = Buffer.from(cursor, 'base64').toString('utf-8');
+      const { id, updatedAt } = JSON.parse(decodedString);
+      args.cursor = { id, updatedAt };
     }
-    this.logger.log('parent id in listing', parentFolderId, args);
 
     const data = await this.prisma.extended.file.findMany(args);
     let cursorId;
     const serializedData = plainToInstance(ListRecordResponseDto, data);
 
     if (serializedData.length === limit + 1) {
-      const { id } = serializedData.pop();
-      cursorId = id;
+      const { id, updatedAt } = serializedData.pop();
+      cursorId = Buffer.from(JSON.stringify({ id, updatedAt })).toString(
+        'base64',
+      );
     }
 
     return {
@@ -202,17 +226,45 @@ export class FileSystemController {
     }
 
     const createdFolderId = uuidV4();
+    const calculatedPath =
+      (parenFolder?.fileSystemPath || '/') + body.folderName + '/';
+    const parentIdParam = parenFolder ? parenFolder.id : null;
 
-    const data = await this.prisma.folder.create({
-      data: {
-        fileSystemPath:
-          (parenFolder?.fileSystemPath || '/') + body.folderName + '/',
-        createdBy: { connect: { id: user.id } },
-        id: createdFolderId,
-        ...(parenFolder ? { parent: { connect: { id: parenFolder.id } } } : {}),
-      },
-    });
-    return data;
+    // Explicitly providing NOW() for updatedAt to satisfy the DB constraint
+    await this.prisma.$executeRaw`
+  INSERT INTO "Folder" (
+    "id", 
+    "parentId", 
+    "createdById", 
+    "fileSystemPath", 
+    "isDeleted",
+    "itemCount",
+    "size",
+    "updatedAt"
+  )
+  VALUES (
+    ${createdFolderId}::uuid, 
+    ${parentIdParam}::uuid, 
+    ${user.id}::uuid, 
+    ${calculatedPath}, 
+    false,
+    0,
+    0,
+    NOW()
+  )
+`;
+
+    return {
+      id: createdFolderId,
+      parentId: parentIdParam,
+      createdById: user.id,
+      fileSystemPath: calculatedPath,
+      isDeleted: false,
+      itemCount: 0,
+      size: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
   }
 
   @Put('rename-folder')
@@ -243,13 +295,15 @@ export class FileSystemController {
 
       await tx.$executeRaw`
     UPDATE "Folder"
-    SET "fileSystemPath" = REPLACE("fileSystemPath", ${oldPath}, ${newPath})
+    SET "fileSystemPath" = REPLACE("fileSystemPath", ${oldPath}, ${newPath}),
+    updatedAt = NOW()
     WHERE "fileSystemPath" LIKE ${oldPath + '%'}
   `;
 
       await tx.$executeRaw`
     UPDATE "File"
-    SET "fileSystemPath" = REPLACE("fileSystemPath", ${oldPath}, ${newPath})
+    SET "fileSystemPath" = REPLACE("fileSystemPath", ${oldPath}, ${newPath}),
+    updatedAt = NOW()
     WHERE "fileSystemPath" LIKE ${oldPath + '%'}
   `;
     });
